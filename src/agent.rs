@@ -15,6 +15,8 @@ pub struct Agent {
     pub config: Mutex<Option<Config>>,
     /// `orderKey|kind|printer` of printed slips, kept in printed.log, so the same slip is never printed twice (also after a restart).
     printed: Mutex<HashSet<String>>,
+    /// The printers as staff set them in Restora, kept (printers.json) so the web app on this PC can print without internet.
+    printers: Mutex<serde_json::Value>,
     pub http: reqwest::Client,
 }
 
@@ -32,12 +34,15 @@ pub struct Slip<'a> {
 #[derive(Deserialize)]
 struct Paired {
     token: String,
+    #[serde(default)]
+    printers: serde_json::Value,
 }
 
 impl Agent {
     pub fn new() -> Self {
         let printed = std::fs::read_to_string(config::folder().join("printed.log")).unwrap_or_default().lines().map(String::from).collect();
-        Self { config: Mutex::new(config::load()), printed: Mutex::new(printed), http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap() }
+        let printers = std::fs::read(config::folder().join("printers.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_else(|| serde_json::json!([]));
+        Self { config: Mutex::new(config::load()), printed: Mutex::new(printed), printers: Mutex::new(printers), http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap() }
     }
 
     pub fn paired(&self) -> bool {
@@ -81,12 +86,26 @@ impl Agent {
         let config = Config { api, token: paired.token };
         config::save(&config).map_err(|e| format!("Cannot save the key: {e}"))?;
         *self.config.lock().unwrap() = Some(config);
+        self.set_printers(paired.printers);
         Ok(())
+    }
+
+    pub fn printers(&self) -> serde_json::Value {
+        self.printers.lock().unwrap().clone()
+    }
+
+    pub fn set_printers(&self, printers: serde_json::Value) {
+        if !printers.is_array() {
+            return;
+        }
+        let _ = std::fs::write(config::folder().join("printers.json"), printers.to_string());
+        *self.printers.lock().unwrap() = printers;
     }
 
     /// The backend says this agent is no longer paired (it was removed in Settings): forget the key.
     pub fn unpair(&self) {
         config::clear();
+        self.set_printers(serde_json::json!([]));
         *self.config.lock().unwrap() = None;
     }
 }

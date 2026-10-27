@@ -59,6 +59,7 @@ pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
         .route("/setup/pair", post(pair))
         .route("/status", get(status))
         .route("/printers", get(list_printers))
+        .route("/config", get(config))
         .route("/print", post(print))
         .layer(middleware::from_fn_with_state(local.clone(), guard))
         .layer(cors)
@@ -92,6 +93,11 @@ async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> 
 
 async fn status(State(local): State<Shared>) -> Json<serde_json::Value> {
     Json(json!({ "paired": local.agent.paired(), "version": env!("CARGO_PKG_VERSION") }))
+}
+
+/// The printers as staff set them in Restora (name, what each prints, paper), for the web app when it has no internet.
+async fn config(State(local): State<Shared>) -> Json<serde_json::Value> {
+    Json(json!({ "paired": local.agent.paired(), "printers": local.agent.printers() }))
 }
 
 async fn list_printers() -> Response {

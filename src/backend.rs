@@ -49,8 +49,13 @@ pub async fn run(agent: Arc<Agent>) {
         if reported.elapsed() >= REPORT_PRINTERS {
             if let Ok(names) = printers::list() {
                 let sent = agent.http.put(format!("{url}/printers")).bearer_auth(&config.token).json(&serde_json::json!({ "version": env!("CARGO_PKG_VERSION"), "printers": names })).send().await;
-                if sent.is_ok_and(|r| r.status().is_success()) {
-                    reported = Instant::now();
+                if let Ok(response) = sent.map(|r| r.error_for_status()) {
+                    if let Ok(answer) = response {
+                        if let Ok(body) = answer.json::<serde_json::Value>().await {
+                            agent.set_printers(body["printers"].clone());
+                        }
+                        reported = Instant::now();
+                    }
                 }
             } else {
                 reported = Instant::now();
