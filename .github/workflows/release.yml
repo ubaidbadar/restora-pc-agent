@@ -1,0 +1,19 @@
+name: Release
+
+# Push a tag like v0.1.0 to publish the Windows app on the Releases page (the Download button in Restora opens it).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release
+      - run: gh release create "${{ github.ref_name }}" target/release/restora-pc-agent.exe --title "${{ github.ref_name }}" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

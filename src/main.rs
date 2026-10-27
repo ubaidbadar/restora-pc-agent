@@ -1,11 +1,29 @@
+// Release builds on Windows have no console window: the tray icon is the only thing shown.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
+mod agent;
+mod backend;
+mod config;
 mod escpos;
 mod local;
 mod printers;
 mod slips;
+#[cfg(windows)]
+mod tray;
 
-#[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt::init();
+use std::sync::{Arc, Mutex};
+
+/// Windows has no console to log to, so the log is a file next to the settings.
+fn start_logging() {
+    let file = std::fs::OpenOptions::new().create(true).append(true).open(config::folder().join("agent.log"));
+    match file {
+        Ok(file) if cfg!(windows) => tracing_subscriber::fmt().with_ansi(false).with_writer(Mutex::new(file)).init(),
+        _ => tracing_subscriber::fmt::init(),
+    }
+}
+
+fn main() {
+    start_logging();
     // The Restora pages allowed to call the agent; RESTORA_ORIGINS (comma separated) replaces them.
     let origins = std::env::var("RESTORA_ORIGINS")
         .unwrap_or_else(|_| "https://app.restora.live,http://localhost:3000".to_string())
@@ -13,9 +31,24 @@ async fn main() {
         .map(|o| o.trim().trim_end_matches('/').to_string())
         .filter(|o| !o.is_empty())
         .collect();
-    let listener = tokio::net::TcpListener::bind(local::ADDRESS)
-        .await
-        .expect("port 17777 is busy: is the agent already running?");
+    let agent = Arc::new(agent::Agent::new());
+    let runtime = tokio::runtime::Runtime::new().expect("the async runtime");
+
+    let listener = match runtime.block_on(tokio::net::TcpListener::bind(local::ADDRESS)) {
+        Ok(listener) => listener,
+        Err(err) => {
+            // Most likely the agent is already running.
+            tracing::error!("cannot listen on {}: {err}", local::ADDRESS);
+            return;
+        }
+    };
     tracing::info!("listening on http://{}", local::ADDRESS);
-    axum::serve(listener, local::router(origins)).await.unwrap();
+    runtime.spawn(backend::run(agent.clone()));
+    runtime.spawn(async move { axum::serve(listener, local::router(agent, origins)).await.unwrap() });
+
+    #[cfg(windows)]
+    tray::run(&format!("http://{}", local::ADDRESS));
+    // Elsewhere (development) the agent runs until it is stopped.
+    #[cfg(not(windows))]
+    runtime.block_on(tokio::signal::ctrl_c()).ok();
 }
