@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Print agent test</title>
+<body style="font:16px system-ui;max-width:40rem;margin:2rem auto">
+<h1>Print agent test</h1>
+<p>Open this page from an allowed origin (app.restora.live, or http://localhost:3000 in development; set RESTORA_ORIGINS on the agent for others). Chrome should ask once to allow local network access.</p>
+<button id="status">1. Status</button> <button id="printers">2. List printers</button>
+<p><input id="printer" placeholder="Printer name"> <button id="kitchen">3. Print kitchen slip</button> <button id="receipt">4. Print receipt</button></p>
+<pre id="out"></pre>
+<script>
+const agent = 'http://127.0.0.1:17777';
+const out = document.getElementById('out');
+const order = { dailyToken: 7, type: 'dine_in', tableName: 'T4', createdAt: new Date().toISOString(), subtotal: 2500, discount: 0, taxRate: 16, tax: 400, total: 2900, paymentStatus: 'paid', paymentMethod: 'cash', takenBy: 'Test',
+  items: [{ name: 'Chicken Karahi', qty: 1, price: 1800, sizeName: 'Half', note: 'less spicy' }, { name: 'Naan', qty: 2, price: 350 }] };
+const show = async (request) => {
+  try { const r = await request; out.textContent = r.status + ' ' + JSON.stringify(await r.json(), null, 2); } catch (e) { out.textContent = 'Failed: ' + e.message; }
+};
+const print = (kind) => show(fetch(agent + '/print', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ printer: document.getElementById('printer').value, kind, orderKey: 'test-' + Date.now(), order, header: { restaurant: 'Karahi House', branch: 'Main Branch, Lahore' } }) }));
+status.onclick = () => show(fetch(agent + '/status'));
+printers.onclick = () => show(fetch(agent + '/printers'));
+kitchen.onclick = () => print('kitchen');
+receipt.onclick = () => print('receipt');
+</script>
