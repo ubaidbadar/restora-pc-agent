@@ -14,5 +14,5 @@ This first slice has no tray, pairing, queue or installer yet. It has:
 ```
 cargo test                                   # slip tests
 cargo build --release --target x86_64-pc-windows-msvc   # on Windows
-RESTORA_ORIGINS=http://localhost:3000 restora-print-agent
+RESTORA_ORIGINS=http://localhost:3000 restora-pc-agent
 ```
