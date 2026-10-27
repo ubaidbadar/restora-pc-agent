@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Restora print agent</title>
+<style>
+  body { font: 16px system-ui, sans-serif; max-width: 26rem; margin: 3rem auto; padding: 0 1rem; color: #111; }
+  input { font: inherit; font-size: 1.5rem; letter-spacing: .3em; width: 100%; box-sizing: border-box; padding: .5rem; text-align: center; }
+  button { font: inherit; margin-top: .75rem; padding: .6rem 1rem; width: 100%; cursor: pointer; }
+  #message { margin-top: 1rem; }
+  .error { color: #b00020; }
+</style>
+<h1>Restora print agent</h1>
+<div id="paired" hidden>
+  <p><strong>This PC is paired.</strong> Its printers are in Restora under Settings, then Printers. You can close this page.</p>
+</div>
+<form id="form">
+  <p>In Restora, open Settings, then Printers, then add this PC. Type the 6-digit code it shows.</p>
+  <input id="code" inputmode="numeric" maxlength="6" autocomplete="off" autofocus placeholder="000000">
+  <button>Pair this PC</button>
+</form>
+<p id="message"></p>
+<script>
+  const message = document.getElementById('message');
+  const show = (paired) => {
+    document.getElementById('paired').hidden = !paired;
+    document.getElementById('form').hidden = paired;
+  };
+  fetch('/status').then((r) => r.json()).then((s) => show(s.paired));
+  document.getElementById('form').onsubmit = async (event) => {
+    event.preventDefault();
+    message.className = '';
+    message.textContent = 'Pairing…';
+    try {
+      const response = await fetch('/setup/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: document.getElementById('code').value }) });
+      const answer = await response.json();
+      if (!response.ok) throw new Error(answer.message);
+      message.textContent = '';
+      show(true);
+    } catch (error) {
+      message.className = 'error';
+      message.textContent = error.message;
+    }
+  };
+</script>
+</html>

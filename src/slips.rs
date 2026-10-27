@@ -176,6 +176,15 @@ fn details_block(p: &mut Escpos, order: &Order, receipt: bool) {
     }
 }
 
+/// The bytes of a slip, or nothing for a kind that is not kitchen or receipt.
+pub fn render(kind: &str, order: &Order, header: &Header, width: usize) -> Option<Vec<u8>> {
+    match kind {
+        "kitchen" => Some(kitchen(order, width)),
+        "receipt" => Some(receipt(order, header, width)),
+        _ => None,
+    }
+}
+
 /// The kitchen slip: what to cook, big, no prices.
 pub fn kitchen(order: &Order, width: usize) -> Vec<u8> {
     let mut p = Escpos::new(width);
