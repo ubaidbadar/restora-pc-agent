@@ -3,6 +3,13 @@ name: Release
 # Every push to main publishes a new version on the Releases page (the Download button in Restora opens it).
 # The version is the last release's plus one patch. Put #minor or #major in the commit message (or the merged PR's
 # title) to raise that part instead. Cargo.toml is set to the version inside the build only, so nothing is committed back.
+#
+# The exe is also put in the Cloudflare R2 bucket, once these repository secrets are set (Settings > Secrets and
+# variables > Actions): R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, and R2_PUBLIC_URL (the
+# bucket's public address, e.g. https://downloads.restora.live). Each release adds:
+#   restora-pc-agent/v1.2.3/restora-pc-agent.exe   that version, kept
+#   restora-pc-agent/latest/restora-pc-agent.exe   always the newest: what the Download button links to
+#   restora-pc-agent/latest.json                   {"version", "url"} of the newest, for an update check later
 on:
   push:
     branches: [main]
@@ -18,6 +25,9 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      # At job level so a step's `if` can see whether the bucket is set up yet.
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,6 +60,29 @@ jobs:
 
       - if: steps.version.outputs.skip != 'true'
         run: cargo build --release
+
+      # Before the GitHub release: if the upload fails, no tag is made, so running the workflow again redoes it all.
+      - if: steps.version.outputs.skip != 'true' && env.R2_BUCKET != ''
+        shell: bash
+        env:
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # R2 does not take the checksums newer AWS CLIs add by default.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          exe=target/release/restora-pc-agent.exe
+          type=application/vnd.microsoft.portable-executable
+          base="s3://$R2_BUCKET/restora-pc-agent"
+          aws s3 cp "$exe" "$base/v$VERSION/restora-pc-agent.exe" --endpoint-url "$ENDPOINT" --content-type "$type"
+          aws s3 cp "$exe" "$base/latest/restora-pc-agent.exe" --endpoint-url "$ENDPOINT" --content-type "$type" --cache-control "no-cache"
+          printf '{"version":"%s","url":"%s/restora-pc-agent/v%s/restora-pc-agent.exe"}\n' "$VERSION" "${R2_PUBLIC_URL%/}" "$VERSION" > latest.json
+          aws s3 cp latest.json "$base/latest.json" --endpoint-url "$ENDPOINT" --content-type application/json --cache-control "no-cache"
+          echo "Uploaded: ${R2_PUBLIC_URL%/}/restora-pc-agent/latest/restora-pc-agent.exe" >> "$GITHUB_STEP_SUMMARY"
 
       - if: steps.version.outputs.skip != 'true'
         run: gh release create "v${{ steps.version.outputs.version }}" target/release/restora-pc-agent.exe --target "${{ github.sha }}" --title "v${{ steps.version.outputs.version }}" --generate-notes
