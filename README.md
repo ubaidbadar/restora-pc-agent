@@ -17,4 +17,4 @@ cargo test                                     # slip tests
 cargo run                                      # runs on Linux too; printing only works on Windows
 cargo build --release --target x86_64-pc-windows-msvc
 ```
-`test/index.html` calls the local server from a browser page. Every push to main publishes a new release by itself (`.github/workflows/release.yml`): the next patch version, or add `#minor` / `#major` to the commit message to raise that part.
+`test/index.html` calls the local server from a browser page. Every push to main publishes a new release by itself (`.github/workflows/release.yml`): the next patch version, or add `#minor` / `#major` to the commit message to raise that part. With the R2 secrets set, the exe is also uploaded to the Cloudflare bucket (see the top of the workflow).
