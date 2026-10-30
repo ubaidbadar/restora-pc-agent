@@ -1,19 +1,57 @@
 name: Release
 
-# Push a tag like v0.1.0 to publish the Windows app on the Releases page (the Download button in Restora opens it).
+# Every push to main publishes a new version on the Releases page (the Download button in Restora opens it).
+# The version is the last release's plus one patch. Put #minor or #major in the commit message (or the merged PR's
+# title) to raise that part instead. Cargo.toml is set to the version inside the build only, so nothing is committed back.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths-ignore: ['**.md']
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo build --release
-      - run: gh release create "${{ github.ref_name }}" target/release/restora-pc-agent.exe --title "${{ github.ref_name }}" --generate-notes
+        with:
+          fetch-depth: 0
+
+      - id: version
+        shell: bash
+        run: |
+          git fetch --tags --force
+          if [ -n "$(git tag --points-at HEAD --list 'v*')" ]; then
+            echo "already released"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -z "$last" ]; then
+            next=0.1.0
+          else
+            IFS=. read -r major minor patch <<< "${last#v}"
+            message=$(git log -1 --format=%B)
+            case "$message" in
+              *'#major'*) next="$((major + 1)).0.0" ;;
+              *'#minor'*) next="$major.$((minor + 1)).0" ;;
+              *) next="$major.$minor.$((patch + 1))" ;;
+            esac
+          fi
+          echo "next version: $next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          sed -i "0,/^version = .*/s//version = \"$next\"/" Cargo.toml
+
+      - if: steps.version.outputs.skip != 'true'
+        run: cargo build --release
+
+      - if: steps.version.outputs.skip != 'true'
+        run: gh release create "v${{ steps.version.outputs.version }}" target/release/restora-pc-agent.exe --target "${{ github.sha }}" --title "v${{ steps.version.outputs.version }}" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
