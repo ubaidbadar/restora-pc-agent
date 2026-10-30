@@ -8,7 +8,7 @@ use std::{
 };
 
 /// The API when none is set (`RESTORA_API` replaces it).
-const DEFAULT_API: &str = "https://api.restora.live/api/v1";
+const DEFAULT_API: &str = "https://restora.live/api/v1";
 
 /// What the local server and the backend loop share: who this agent is, and the slips already printed.
 pub struct Agent {

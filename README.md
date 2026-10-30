@@ -9,7 +9,7 @@ A small Windows tray app that prints Restora slips on the printers connected to 
 - **Printers:** the agent sends the Windows printer list on pairing and every 5 minutes. Staff name them in Settings.
 
 ## Local server (127.0.0.1:17777)
-`GET /status`, `GET /printers`, `POST /print { printer, kind: "kitchen" | "receipt", orderKey, width?: 48 | 32, copies?, order, header? }`, and the setup page. It answers only the Restora origins (`RESTORA_ORIGINS` replaces them) and the host `127.0.0.1:17777`. `RESTORA_API` replaces the API address (default https://api.restora.live/api/v1).
+`GET /status`, `GET /printers`, `POST /print { printer, kind: "kitchen" | "receipt", orderKey, width?: 48 | 32, copies?, order, header? }`, and the setup page. It answers only the Restora origins (`RESTORA_ORIGINS` replaces them) and the host `127.0.0.1:17777`. `RESTORA_API` replaces the API address (default https://restora.live/api/v1).
 
 ## Develop
 ```

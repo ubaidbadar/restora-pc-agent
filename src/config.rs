@@ -4,7 +4,7 @@ use std::path::PathBuf;
 /// What the agent keeps between runs once it is paired.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
-    /// The API, e.g. https://api.restora.live/api/v1
+    /// The API, e.g. https://restora.live/api/v1
     pub api: String,
     /// The agent's own key; the backend keeps only its hash.
     pub token: String,
