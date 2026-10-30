@@ -37,14 +37,20 @@ fn main() {
     let listener = match runtime.block_on(tokio::net::TcpListener::bind(local::ADDRESS)) {
         Ok(listener) => listener,
         Err(err) => {
-            // Most likely the agent is already running.
+            // Most likely the agent is already running (opened again from the desktop): show its setup page instead.
             tracing::error!("cannot listen on {}: {err}", local::ADDRESS);
+            local::open_setup();
             return;
         }
     };
     tracing::info!("listening on http://{}", local::ADDRESS);
     runtime.spawn(backend::run(agent.clone()));
+    let paired = agent.paired();
     runtime.spawn(async move { axum::serve(listener, local::router(agent, origins)).await.unwrap() });
+    // Not paired with Restora yet: the setup page opens by itself, so nobody has to find it.
+    if !paired {
+        local::open_setup();
+    }
 
     #[cfg(windows)]
     tray::run(&format!("http://{}", local::ADDRESS));

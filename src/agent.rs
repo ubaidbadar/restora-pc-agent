@@ -18,6 +18,8 @@ pub struct Agent {
     /// The printers as staff set them in Restora, kept (printers.json) so the web app on this PC can print without internet.
     printers: Mutex<serde_json::Value>,
     pub http: reqwest::Client,
+    /// Whether the last call to Restora got through, for the setup page.
+    pub online: std::sync::atomic::AtomicBool,
 }
 
 /// A slip to print, from the web app on this PC or from the backend.
@@ -42,7 +44,7 @@ impl Agent {
     pub fn new() -> Self {
         let printed = std::fs::read_to_string(config::folder().join("printed.log")).unwrap_or_default().lines().map(String::from).collect();
         let printers = std::fs::read(config::folder().join("printers.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_else(|| serde_json::json!([]));
-        Self { config: Mutex::new(config::load()), printed: Mutex::new(printed), printers: Mutex::new(printers), http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap() }
+        Self { config: Mutex::new(config::load()), printed: Mutex::new(printed), printers: Mutex::new(printers), http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap(), online: std::sync::atomic::AtomicBool::new(false) }
     }
 
     pub fn paired(&self) -> bool {
