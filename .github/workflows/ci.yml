@@ -17,3 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cargo build --release
+      # The exe of every push and pull request, under the run's Artifacts (kept 30 days). Releases are made by tagging.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: restora-pc-agent-windows
+          path: target/release/restora-pc-agent.exe
+          retention-days: 30
