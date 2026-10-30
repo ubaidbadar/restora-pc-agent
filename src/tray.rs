@@ -31,7 +31,7 @@ fn icon() -> Option<Icon> {
 }
 
 /// Opens the setup page in the default browser, through the Windows shell (no command prompt is started).
-fn open(url: &str) {
+pub fn open(url: &str) {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     use windows::core::{HSTRING, w};

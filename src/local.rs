@@ -15,6 +15,15 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub const ADDRESS: &str = "127.0.0.1:17777";
 
+/// Opens the setup page in the browser, so staff can type the pairing code. Elsewhere (development) it only logs where it is.
+pub fn open_setup() {
+    let url = format!("http://{ADDRESS}");
+    #[cfg(windows)]
+    crate::tray::open(&url);
+    #[cfg(not(windows))]
+    tracing::info!("set this agent up at {url}");
+}
+
 struct Local {
     agent: Arc<Agent>,
     origins: Vec<String>,
@@ -92,7 +101,8 @@ async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> 
 }
 
 async fn status(State(local): State<Shared>) -> Json<serde_json::Value> {
-    Json(json!({ "paired": local.agent.paired(), "version": env!("CARGO_PKG_VERSION") }))
+    let online = local.agent.online.load(std::sync::atomic::Ordering::Relaxed);
+    Json(json!({ "paired": local.agent.paired(), "online": online, "version": env!("CARGO_PKG_VERSION") }))
 }
 
 /// The printers as staff set them in Restora (name, what each prints, paper), for the web app when it has no internet.

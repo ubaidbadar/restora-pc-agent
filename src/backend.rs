@@ -2,6 +2,7 @@ use crate::agent::{Agent, Slip, retry_delay};
 use crate::{printers, slips};
 use serde::Deserialize;
 use std::{
+    sync::atomic::Ordering,
     collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
@@ -67,12 +68,15 @@ pub async fn run(agent: Arc<Agent>) {
             // No internet: nothing is lost, the slips wait at the backend.
             Err(err) => {
                 tracing::warn!("cannot reach Restora: {err}");
+                agent.online.store(false, Ordering::Relaxed);
                 continue;
             }
         };
+        agent.online.store(true, Ordering::Relaxed);
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
             tracing::warn!("this agent was removed in Settings; pair it again");
             agent.unpair();
+            crate::local::open_setup();
             continue;
         }
         let Ok(jobs) = response.json::<Vec<Job>>().await else { continue };
