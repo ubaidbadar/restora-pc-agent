@@ -25,18 +25,17 @@ fn set_autostart(on: bool) {
     }
 }
 
-/// A round brand-colored dot; there is no icon file to ship.
-fn icon() -> Icon {
-    let size = 32u32;
-    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
-    for y in 0..size {
-        for x in 0..size {
-            let (dx, dy) = (x as f32 - 15.5, y as f32 - 15.5);
-            let inside = dx * dx + dy * dy <= 15.0 * 15.0;
-            rgba.extend(if inside { [0xE8, 0x5D, 0x04, 0xFF] } else { [0, 0, 0, 0] });
-        }
-    }
-    Icon::from_rgba(rgba, size, size).expect("a 32x32 icon")
+/// The Restora icon built into the exe (build.rs, assets/restora.ico), at the size Windows uses in the tray.
+fn icon() -> Option<Icon> {
+    Icon::from_resource(1, None).ok()
+}
+
+/// Opens the setup page in the default browser, through the Windows shell (no command prompt is started).
+fn open(url: &str) {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::{HSTRING, w};
+    unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(url), None, None, SW_SHOWNORMAL) };
 }
 
 /// Shows the tray icon and handles its menu until Quit. The first run turns "Start with Windows" on, unless it was turned off.
@@ -50,7 +49,11 @@ pub fn run(setup_url: &str) {
     let autostart = CheckMenuItem::new("Start with Windows", true, autostart_enabled(), None);
     let quit = MenuItem::new("Quit", true, None);
     let _ = menu.append_items(&[&setup, &autostart, &quit]);
-    let _tray = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip("Restora print agent").with_icon(icon()).build();
+    let mut tray = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip("Restora Print");
+    if let Some(icon) = icon() {
+        tray = tray.with_icon(icon);
+    }
+    let _tray = tray.build();
 
     let mut message = MSG::default();
     // Waits for the next window message; the menu's clicks come through here.
@@ -61,7 +64,7 @@ pub fn run(setup_url: &str) {
         }
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if event.id == *setup.id() {
-                let _ = std::process::Command::new("cmd").args(["/c", "start", "", setup_url]).spawn();
+                open(setup_url);
             } else if event.id == *autostart.id() {
                 set_autostart(autostart.is_checked());
             } else if event.id == *quit.id() {
