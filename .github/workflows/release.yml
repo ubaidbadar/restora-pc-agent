@@ -77,6 +77,12 @@ jobs:
           ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # A pasted secret often carries a trailing space or newline, which breaks the signature: strip them.
+          AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID//[[:space:]]/}"
+          AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY//[[:space:]]/}"
+          export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+          # R2 tokens have a 32-character access key ID and a 64-character secret access key. The lengths are not secret.
+          echo "R2 access key ID length: ${#AWS_ACCESS_KEY_ID} (expect 32), secret length: ${#AWS_SECRET_ACCESS_KEY} (expect 64)"
           exe=target/release/restora-pc-agent.exe
           type=application/vnd.microsoft.portable-executable
           base="s3://$R2_BUCKET/restora-pc-agent"
