@@ -1,7 +1,7 @@
 use crate::{config::{self, Config}, printers, slips};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     io::Write,
     sync::Mutex,
     time::Duration,
@@ -20,6 +20,24 @@ pub struct Agent {
     pub http: reqwest::Client,
     /// Whether the last call to Restora got through, for the setup page.
     pub online: std::sync::atomic::AtomicBool,
+    recent: Mutex<VecDeque<Recent>>,
+}
+
+/// How many results the setup page lists.
+const RECENT: usize = 8;
+
+/// One slip's latest result, for the "Recent slips" list. Only kept while the program runs.
+#[derive(Serialize, Clone)]
+pub struct Recent {
+    /// When it last changed, seconds since 1970.
+    pub at: u64,
+    pub printer: String,
+    pub kind: String,
+    /// "Order #12": what staff know the order by.
+    pub order: String,
+    /// "printed", or "failed" (it will be tried again until it is given up).
+    pub state: &'static str,
+    pub error: Option<String>,
 }
 
 /// A slip to print, from the web app on this PC or from the backend.
@@ -44,7 +62,7 @@ impl Agent {
     pub fn new() -> Self {
         let printed = std::fs::read_to_string(config::folder().join("printed.log")).unwrap_or_default().lines().map(String::from).collect();
         let printers = std::fs::read(config::folder().join("printers.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_else(|| serde_json::json!([]));
-        Self { config: Mutex::new(config::load()), printed: Mutex::new(printed), printers: Mutex::new(printers), http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap(), online: std::sync::atomic::AtomicBool::new(false) }
+        Self { config: Mutex::new(config::load()), printed: Mutex::new(printed), printers: Mutex::new(printers), http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap(), online: std::sync::atomic::AtomicBool::new(false), recent: Mutex::new(VecDeque::new()) }
     }
 
     pub fn paired(&self) -> bool {
@@ -61,11 +79,26 @@ impl Agent {
             return Ok(false);
         }
         let bytes = slips::render(slip.kind, slip.order, slip.header, slip.width).ok_or("kind must be kitchen or receipt")?;
-        for _ in 0..slip.copies.clamp(1, 5) {
-            printers::print_raw(slip.printer, &bytes)?;
-        }
+        let sent = (0..slip.copies.clamp(1, 5)).try_for_each(|_| printers::print_raw(slip.printer, &bytes));
+        self.note(slip, sent.as_ref().err().cloned());
+        sent?;
         self.remember(Self::key(slip));
         Ok(true)
+    }
+
+    /// Keeps the result for the setup page; a slip tried again replaces its own line instead of adding one.
+    fn note(&self, slip: &Slip, error: Option<String>) {
+        let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let order = format!("Order #{}", slips::token(slip.order));
+        let line = Recent { at, printer: slip.printer.to_string(), kind: slip.kind.to_string(), order, state: if error.is_some() { "failed" } else { "printed" }, error };
+        let mut recent = self.recent.lock().unwrap();
+        recent.retain(|r| !(r.order == line.order && r.kind == line.kind && r.printer == line.printer));
+        recent.push_front(line);
+        recent.truncate(RECENT);
+    }
+
+    pub fn recent(&self) -> Vec<Recent> {
+        self.recent.lock().unwrap().iter().cloned().collect()
     }
 
     fn remember(&self, key: String) {

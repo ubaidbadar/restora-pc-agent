@@ -8,6 +8,7 @@ mod escpos;
 mod local;
 mod printers;
 mod slips;
+mod status;
 #[cfg(windows)]
 mod tray;
 
@@ -46,6 +47,8 @@ fn main() {
     tracing::info!("listening on http://{}", local::ADDRESS);
     runtime.spawn(backend::run(agent.clone()));
     let paired = agent.paired();
+    #[cfg(windows)]
+    let agent_for_tray = agent.clone();
     runtime.spawn(async move { axum::serve(listener, local::router(agent, origins)).await.unwrap() });
     // Not paired with Restora yet: the setup page opens by itself, so nobody has to find it.
     if !paired {
@@ -53,7 +56,7 @@ fn main() {
     }
 
     #[cfg(windows)]
-    tray::run(&format!("http://{}", local::ADDRESS));
+    tray::run(&format!("http://{}", local::ADDRESS), agent_for_tray);
     // Elsewhere (development) the agent runs until it is stopped.
     #[cfg(not(windows))]
     runtime.block_on(tokio::signal::ctrl_c()).ok();

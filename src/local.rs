@@ -100,9 +100,10 @@ async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> 
     }
 }
 
-async fn status(State(local): State<Shared>) -> Json<serde_json::Value> {
-    let online = local.agent.online.load(std::sync::atomic::Ordering::Relaxed);
-    Json(json!({ "paired": local.agent.paired(), "online": online, "version": env!("CARGO_PKG_VERSION") }))
+/// Everything the setup page shows: connection, printers and the recent slips (see status.rs).
+async fn status(State(local): State<Shared>) -> Json<crate::status::Snapshot> {
+    let agent = local.agent.clone();
+    Json(tokio::task::spawn_blocking(move || crate::status::snapshot(&agent)).await.unwrap())
 }
 
 /// The printers as staff set them in Restora (name, what each prints, paper), for the web app when it has no internet.
