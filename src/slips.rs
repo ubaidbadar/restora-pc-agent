@@ -128,7 +128,7 @@ fn rs(amount: f64) -> String {
     format!("Rs {}", number(amount))
 }
 
-fn token(order: &Order) -> String {
+pub fn token(order: &Order) -> String {
     match &order.daily_token {
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),

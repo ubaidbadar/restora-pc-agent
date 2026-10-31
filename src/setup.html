@@ -2,64 +2,191 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
 <title>Restora Print</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40' width='40' height='40'><rect width='40' height='40' rx='10' fill='%234F46E5'/><g fill='%23FFFFFF'><circle cx='20' cy='9.5' r='2.5'/><path d='M9 23a11 11 0 0 1 22 0z'/><rect x='7' y='25' width='26' height='4' rx='2'/><path d='M10.5 28h5L10 32.5z'/></g></svg>">
 <style>
-  /* Restora's colors (restora-web src/index.css): primary indigo, ink text, white cards on a light page. */
-  :root { --primary: #4F46E5; --primary-hover: #4338CA; --primary-soft: #EEF2FF; --ink: #0F172A; --muted: #475569; --page: #F8FAFC; --surface: #FFFFFF; --line: #E2E8F0; --danger: #A3301F; --success: #1F6B43; }
+  /* Restora's colors (restora-web src/index.css): primary indigo, ink text, white cards on a light page. Light only, like the web app. */
+  :root {
+    color-scheme: light;
+    --primary: #4F46E5; --primary-hover: #4338CA; --primary-soft: #EEF2FF;
+    --ink: #0F172A; --muted: #475569; --page: #F8FAFC; --surface: #FFFFFF; --line: #E2E8F0; --sunken: #F1F5F9;
+    --success: #1F6B43; --success-soft: #E8F5EE; --warn: #8A4B08; --warn-soft: #FEF3E2; --danger: #A3301F; --danger-soft: #FDECEA;
+    --radius: .75rem; --radius-card: 1rem; --shadow: 0 1px 2px rgb(15 23 42 / .06), 0 8px 24px rgb(15 23 42 / .06);
+    --ring: 0 0 0 3px #fff, 0 0 0 5px var(--primary);
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 1.5rem 1rem; background: var(--page); color: var(--ink); font: 16px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
-  main { width: 100%; max-width: 26rem; background: var(--surface); border-radius: 1rem; box-shadow: 0 1px 2px rgb(15 23 42 / .06), 0 8px 24px rgb(15 23 42 / .06); padding: 2rem 1.5rem; text-align: center; }
-  .logo { width: 3.5rem; height: 3.5rem; }
-  h1 { font-size: 1.5rem; font-weight: 650; margin: .75rem 0 .25rem; }
-  p { color: var(--muted); margin: .5rem 0; }
-  input { font: inherit; font-size: 1.75rem; letter-spacing: .4em; width: 100%; padding: .6rem; margin-top: 1rem; text-align: center; color: var(--ink); border: 1px solid var(--line); border-radius: .75rem; outline: none; }
-  input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
-  button { font: inherit; font-weight: 600; margin-top: .75rem; padding: .75rem 1rem; width: 100%; cursor: pointer; color: #fff; background: var(--primary); border: 0; border-radius: .75rem; }
+  body { margin: 0; min-width: 20rem; background: var(--page); color: var(--ink); font: 16px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
+  main { width: 100%; max-width: 36rem; margin: 0 auto; padding: 1.5rem 1rem 2.5rem; display: grid; gap: 1rem; }
+  header { display: flex; align-items: center; gap: .75rem; }
+  .logo { width: 2.5rem; height: 2.5rem; flex: none; }
+  h1 { font-size: 1.375rem; font-weight: 650; margin: 0; line-height: 1.2; }
+  h2 { font-size: 1rem; font-weight: 650; margin: 0 0 .5rem; }
+  .version { margin-inline-start: auto; color: var(--muted); font-size: .8125rem; }
+  .card { background: var(--surface); border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 1.25rem; }
+  p { margin: .25rem 0; color: var(--muted); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li + li { border-top: 1px solid var(--line); }
+  [hidden] { display: none !important; }
+
+  /* The status: an icon, a title and a sentence. Never color alone. */
+  .status { display: flex; gap: .875rem; align-items: flex-start; border: 1px solid transparent; }
+  .status .mark { flex: none; width: 2rem; height: 2rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700; background: var(--sunken); color: var(--muted); }
+  .status h2 { font-size: 1.125rem; margin: 0; color: var(--ink); }
+  .status p { margin-top: .125rem; }
+  .status.good { background: var(--success-soft); border-color: #BFE3CE; } .status.good .mark { background: var(--success); color: #fff; }
+  .status.warn { background: var(--warn-soft); border-color: #F3D7A9; } .status.warn .mark { background: var(--warn); color: #fff; }
+  .status.bad { background: var(--danger-soft); border-color: #F2C3BC; } .status.bad .mark { background: var(--danger); color: #fff; }
+
+  /* Pairing */
+  label { display: block; font-weight: 600; }
+  input { font: inherit; font-size: 1.75rem; letter-spacing: .4em; padding-inline-start: .4em; width: 100%; min-height: 3.5rem; margin-top: .75rem; text-align: center; color: var(--ink); background: var(--surface); border: 1px solid #94A3B8; border-radius: var(--radius); outline: none; }
+  input:focus-visible { border-color: var(--primary); box-shadow: var(--ring); }
+  input::placeholder { color: #94A3B8; }
+  input[aria-invalid="true"] { border-color: var(--danger); }
+  button { font: inherit; font-weight: 600; margin-top: .75rem; min-height: 2.75rem; padding: .625rem 1rem; width: 100%; cursor: pointer; color: #fff; background: var(--primary); border: 0; border-radius: var(--radius); }
   button:hover { background: var(--primary-hover); }
-  #state { font-weight: 600; }
-  #state.ok { color: var(--success); }
-  #state.wait { color: var(--danger); }
-  #message { min-height: 1.5em; }
-  .error { color: var(--danger) !important; }
+  button:active { transform: translateY(1px); }
+  button:focus-visible { outline: none; box-shadow: var(--ring); }
+  button:disabled { background: #CBD5E1; color: #475569; cursor: not-allowed; transform: none; }
+  #message { min-height: 1.5em; margin-top: .5rem; }
+  .error { color: var(--danger); font-weight: 600; }
+
+  /* Printers and slips */
+  .row { display: flex; gap: .75rem; align-items: flex-start; justify-content: space-between; padding: .75rem 0; }
+  .row:first-child { padding-top: 0; } .row:last-child { padding-bottom: 0; }
+  .row .name { font-weight: 600; overflow-wrap: anywhere; }
+  .row .sub { font-size: .875rem; color: var(--muted); overflow-wrap: anywhere; }
+  .row .problem { font-size: .875rem; color: var(--danger); overflow-wrap: anywhere; }
+  .row.unused .name { font-weight: 500; color: var(--muted); }
+  .badge { flex: none; font-size: .8125rem; font-weight: 600; padding: .125rem .625rem; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; }
+  .badge.good { background: var(--success-soft); color: var(--success); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.bad { background: var(--danger-soft); color: var(--danger); }
+  .empty { color: var(--muted); margin: 0; }
+  .hint { font-size: .875rem; text-align: center; }
+  @media (max-width: 26rem) { .row { flex-direction: column; gap: .25rem; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 <main>
-<svg class="logo" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="10" fill="#4F46E5"/><g fill="#FFFFFF"><circle cx="20" cy="9.5" r="2.5"/><path d="M9 23a11 11 0 0 1 22 0z"/><rect x="7" y="25" width="26" height="4" rx="2"/><path d="M10.5 28h5L10 32.5z"/></g></svg>
-<h1>Restora Print</h1>
-<div id="paired" hidden>
-  <p id="state"></p>
-  <p>Printers are set up in Restora under Settings, then Printers. You can close this page; Restora Print keeps running by the clock.</p>
-</div>
-<form id="form" hidden>
-  <p>In Restora, open Settings, then Printers, then add this PC. Type the 6-digit code it shows.</p>
-  <input id="code" inputmode="numeric" maxlength="6" autocomplete="off" autofocus placeholder="000000" aria-label="Pairing code">
-  <button>Connect this PC</button>
-</form>
-<p id="message"></p>
+  <header>
+    <svg class="logo" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="10" fill="#4F46E5"/><g fill="#FFFFFF"><circle cx="20" cy="9.5" r="2.5"/><path d="M9 23a11 11 0 0 1 22 0z"/><rect x="7" y="25" width="26" height="4" rx="2"/><path d="M10.5 28h5L10 32.5z"/></g></svg>
+    <h1>Restora Print</h1>
+    <span class="version" id="version"></span>
+  </header>
+
+  <section id="status" class="card status" role="status" aria-live="polite">
+    <span class="mark" id="mark" aria-hidden="true">…</span>
+    <div><h2 id="title">Checking…</h2><p id="detail"></p></div>
+  </section>
+
+  <form id="form" class="card" hidden>
+    <label for="code">Pairing code</label>
+    <p id="how">In Restora, open Settings, then Printers, then add this PC. Type the 6-digit code it shows.</p>
+    <input id="code" inputmode="numeric" maxlength="6" autocomplete="off" autofocus placeholder="000000" aria-describedby="how message">
+    <button id="connect" disabled>Connect this PC</button>
+    <p id="message" role="alert"></p>
+  </form>
+
+  <section id="printersCard" class="card" hidden>
+    <h2>Printers</h2>
+    <ul id="printers"></ul>
+  </section>
+
+  <section id="recentCard" class="card" hidden>
+    <h2>Recent slips</h2>
+    <ul id="recent"></ul>
+  </section>
+
+  <p class="hint" id="hint" hidden>You can close this page. Restora Print keeps running in the tray, next to the clock. Click its icon to open this page again.</p>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
   const code = $('code');
+  const MARKS = { neutral: '…', good: '✓', warn: '!', bad: '✕' };
   let busy = false;
 
-  // Asks the agent every few seconds, so the page follows along: paired, back online, or removed in Restora.
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function ago(seconds) {
+    const s = Math.max(0, Math.floor(Date.now() / 1000) - seconds);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + ' min ago';
+    return new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  const KIND = { kitchen: 'Kitchen slip', receipt: 'Receipt' };
+
+  function printerRow(p) {
+    const row = el('li', 'row' + (p.unused ? ' unused' : ''));
+    const left = el('div');
+    left.append(el('div', 'name', p.name));
+    if (p.unused) left.append(el('div', 'sub', 'Not used in Restora yet. Set it up in Settings, then Printers.'));
+    else left.append(el('div', 'sub', p.prints.length ? 'Prints ' + p.prints.map((k) => (KIND[k] || k).toLowerCase() + 's').join(' and ') : 'Prints nothing yet'));
+    let badge;
+    if (p.found === false) badge = el('span', 'badge bad', 'Not found');
+    else if (p.found === null) badge = el('span', 'badge', 'Not checked');
+    else if (p.lastOk === false) badge = el('span', 'badge bad', 'Last slip failed');
+    else if (p.unused) badge = el('span', 'badge', 'In Windows');
+    else badge = el('span', 'badge good', p.lastOk ? 'Last slip printed' : 'Found in Windows');
+    row.append(left, badge);
+    return row;
+  }
+
+  function recentRow(r) {
+    const row = el('li', 'row');
+    const left = el('div');
+    left.append(el('div', 'name', r.order + ' · ' + (KIND[r.kind] || r.kind)));
+    left.append(el('div', 'sub', r.printer + ' · ' + ago(r.at)));
+    if (r.error) left.append(el('div', 'problem', 'Trying again. ' + r.error.charAt(0).toUpperCase() + r.error.slice(1) + '.'));
+    row.append(left, el('span', r.state === 'printed' ? 'badge good' : 'badge bad', r.state === 'printed' ? 'Printed' : 'Not printed'));
+    return row;
+  }
+
+  function show(status) {
+    const h = status.headline;
+    $('status').className = 'card status ' + (h.tone === 'neutral' ? '' : h.tone);
+    $('mark').textContent = MARKS[h.tone];
+    $('title').textContent = h.title;
+    $('detail').textContent = h.detail;
+    $('version').textContent = status.version ? 'Version ' + status.version : '';
+    $('form').hidden = status.paired;
+    $('hint').hidden = false;
+    $('printersCard').hidden = !status.paired;
+    $('recentCard').hidden = !status.paired;
+    if (status.paired) {
+      const list = $('printers');
+      list.replaceChildren(...status.printers.map(printerRow));
+      if (!status.printers.length) list.append(el('li', 'empty', 'No printer is installed in Windows. Install it from Windows settings; it shows up here by itself.'));
+      const recent = $('recent');
+      recent.replaceChildren(...status.recent.map(recentRow));
+      if (!status.recent.length) recent.append(el('li', 'empty', 'Nothing printed yet since Restora Print started.'));
+    } else if (!busy && document.activeElement !== code) {
+      code.focus();
+    }
+  }
+
+  // Asks the agent every few seconds, so the page follows along: paired, offline, a printer unplugged, removed in Restora.
   async function refresh() {
     try {
-      const status = await (await fetch('/status')).json();
-      $('paired').hidden = !status.paired;
-      $('form').hidden = status.paired;
-      $('state').className = status.online ? 'ok' : 'wait';
-      $('state').textContent = status.online ? 'Connected to Restora. Ready to print.' : 'Waiting for internet. Slips print here when it is back.';
-      if (!status.paired && !busy) code.focus();
+      show(await (await fetch('/status')).json());
     } catch {
-      $('message').className = 'error';
-      $('message').textContent = 'Restora Print is not running. Open it again from the Start menu or desktop.';
+      show({ paired: false, version: '', printers: [], recent: [], headline: { tone: 'bad', title: 'Restora Print is not running', detail: 'Open it again from the Start menu or the desktop icon.' } });
+      $('form').hidden = true;
+      $('hint').hidden = true;
     }
   }
 
   async function pair() {
     if (busy || code.value.length !== 6) return;
     busy = true;
+    $('connect').disabled = true;
+    code.removeAttribute('aria-invalid');
     $('message').className = '';
     $('message').textContent = 'Connecting…';
     try {
@@ -67,19 +194,24 @@
       const answer = await response.json();
       if (!response.ok) throw new Error(answer.message);
       $('message').textContent = '';
+      code.value = '';
       await refresh();
     } catch (error) {
+      code.setAttribute('aria-invalid', 'true');
       $('message').className = 'error';
       $('message').textContent = error.message || 'Could not connect. Check the internet and try again.';
       code.select();
     } finally {
       busy = false;
+      $('connect').disabled = code.value.length !== 6;
     }
   }
 
-  // Digits only, and the 6th digit connects by itself: no button to find.
+  // Digits only, and the 6th digit connects by itself.
   code.oninput = () => {
     code.value = code.value.replace(/\D/g, '').slice(0, 6);
+    code.removeAttribute('aria-invalid');
+    $('connect').disabled = busy || code.value.length !== 6;
     pair();
   };
   $('form').onsubmit = (event) => {

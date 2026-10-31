@@ -1,8 +1,9 @@
 //! The tray icon: the only window the agent has. Windows only.
-use crate::config;
-use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem};
-use tray_icon::{Icon, TrayIconBuilder};
-use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, TranslateMessage};
+use crate::{agent::Agent, config, status};
+use std::sync::Arc;
+use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, SetTimer, TranslateMessage};
 use winreg::{RegKey, enums::HKEY_CURRENT_USER};
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -38,25 +39,34 @@ pub fn open(url: &str) {
     unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(url), None, None, SW_SHOWNORMAL) };
 }
 
-/// Shows the tray icon and handles its menu until Quit. The first run turns "Start with Windows" on, unless it was turned off.
-pub fn run(setup_url: &str) {
+/// The tray text for a status: short, and the same words as the setup page.
+fn summary(snapshot: &status::Snapshot) -> String {
+    format!("Restora Print: {}", snapshot.headline.title)
+}
+
+/// Shows the tray icon and handles it until Quit. The first run turns "Start with Windows" on, unless it was turned off.
+/// A click on the icon opens the setup page; the right click shows the menu, whose first line is the current status.
+pub fn run(setup_url: &str, agent: Arc<Agent>) {
     if !autostart_enabled() && !config::folder().join("autostart.off").exists() {
         set_autostart(true);
     }
 
     let menu = Menu::new();
-    let setup = MenuItem::new("Open setup page", true, None);
+    let state = MenuItem::new("Starting…", false, None);
+    let setup = MenuItem::new("Open Restora Print", true, None);
     let autostart = CheckMenuItem::new("Start with Windows", true, autostart_enabled(), None);
-    let quit = MenuItem::new("Quit", true, None);
-    let _ = menu.append_items(&[&setup, &autostart, &quit]);
-    let mut tray = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip("Restora Print");
+    let quit = MenuItem::new("Quit (stops printing)", true, None);
+    let _ = menu.append_items(&[&state, &PredefinedMenuItem::separator(), &setup, &autostart, &PredefinedMenuItem::separator(), &quit]);
+    let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_menu_on_left_click(false).with_tooltip("Restora Print");
     if let Some(icon) = icon() {
-        tray = tray.with_icon(icon);
+        builder = builder.with_icon(icon);
     }
-    let _tray = tray.build();
+    let tray = builder.build();
 
+    // A timer message every 3 seconds wakes the loop below, which keeps the status line and tooltip current.
+    unsafe { SetTimer(None, 0, 3000, None) };
+    let mut shown = String::new();
     let mut message = MSG::default();
-    // Waits for the next window message; the menu's clicks come through here.
     while unsafe { GetMessageW(&mut message, None, 0, 0) }.as_bool() {
         unsafe {
             let _ = TranslateMessage(&message);
@@ -70,6 +80,19 @@ pub fn run(setup_url: &str) {
             } else if event.id == *quit.id() {
                 return;
             }
+        }
+        while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                open(setup_url);
+            }
+        }
+        let text = summary(&status::snapshot(&agent));
+        if text != shown {
+            state.set_text(text.trim_start_matches("Restora Print: "));
+            if let Ok(tray) = &tray {
+                let _ = tray.set_tooltip(Some(&text));
+            }
+            shown = text;
         }
     }
 }
