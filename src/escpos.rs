@@ -47,6 +47,11 @@ impl Escpos {
         self.bytes.extend([0x1b, b'E', on as u8]);
     }
 
+    /// White on black, how a slip marks what not to make.
+    pub fn invert(&mut self, on: bool) {
+        self.bytes.extend([0x1d, b'B', on as u8]);
+    }
+
     /// Character size, 1 to 4 times the normal width and height.
     pub fn size(&mut self, times: u8) {
         self.scale = times.clamp(1, 4) as usize;

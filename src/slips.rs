@@ -32,6 +32,34 @@ pub struct Order {
     pub customer: Option<Customer>,
     #[serde(default)]
     pub created_at: String,
+    /// Set on a cancelled order: who cancelled it and why.
+    pub cancellation: Option<Cancellation>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cancellation {
+    pub reason: Option<String>,
+    pub note: Option<String>,
+    pub by_name: Option<String>,
+}
+
+/// The cancel reasons as staff read them (restora-backend `constants/cancel_reasons`).
+fn reason_text(cancellation: &Cancellation) -> Option<String> {
+    let reason = cancellation.reason.as_deref().map(|code| match code {
+        "customer_left" => "Customer left",
+        "wrong_order" => "Wrong order",
+        "out_of_stock" => "Out of stock",
+        "duplicate" => "Duplicate order",
+        _ => "Other",
+    });
+    let note = cancellation.note.as_deref().filter(|n| !n.is_empty());
+    match (reason, note) {
+        (Some(r), Some(n)) => Some(format!("{r} - {n}")),
+        (Some(r), None) => Some(r.to_string()),
+        (None, Some(n)) => Some(n.to_string()),
+        (None, None) => None,
+    }
 }
 
 #[derive(Deserialize)]
@@ -204,7 +232,34 @@ pub fn kitchen(order: &Order, width: usize) -> Vec<u8> {
     p.bold(false);
     details_block(&mut p, order, false);
     p.rule('-');
+    if let Some(cancellation) = &order.cancellation {
+        // A big cross, then who cancelled it and why: nothing on this slip is to be made.
+        p.align(Side::Center);
+        p.bold(true);
+        p.size(2);
+        for row in ["X     X", " X   X ", "  X X  ", "   X   ", "  X X  ", " X   X ", "X     X"] {
+            p.line(row);
+        }
+        p.invert(true);
+        p.line(" CANCELLED ");
+        p.invert(false);
+        p.size(1);
+        p.align(Side::Left);
+        if let Some(by) = &cancellation.by_name {
+            p.line(&format!("By  {by}"));
+        }
+        if let Some(reason) = reason_text(cancellation) {
+            for text in wrap(&format!("Reason: {reason}"), width) {
+                p.line(&text);
+            }
+        }
+        p.bold(false);
+        p.rule('-');
+    }
     for item in &order.items {
+        // A line to stop making (CANCEL, from an edit or a cancel) prints white on black.
+        let cut = item.name.starts_with("CANCEL ");
+        p.invert(cut);
         p.bold(true);
         p.size(2);
         for (i, text) in wrap(&format!("{}x {}", item.qty, item.name), width / 2)
@@ -229,6 +284,7 @@ pub fn kitchen(order: &Order, width: usize) -> Vec<u8> {
         ) {
             p.line(&format!("   {text}"));
         }
+        p.invert(false);
     }
     p.rule('-');
     p.cut();
@@ -382,6 +438,29 @@ mod tests {
         );
         assert!(slip.contains("2x Naan") && slip.contains("Butter"));
         assert!(!slip.contains("Rs") && !slip.contains("1,800"));
+    }
+
+    #[test]
+    fn cancelled_slip_has_a_cross_who_and_why_and_cut_lines() {
+        let order: Order = serde_json::from_value(serde_json::json!({
+            "dailyToken": "12 CANCELLED", "type": "takeaway", "createdAt": "2026-10-31T08:00:00Z",
+            "items": [{ "name": "CANCEL Burger", "qty": 4 }],
+            "cancellation": { "reason": "customer_left", "note": "changed mind", "byName": "Ali" }
+        }))
+        .unwrap();
+        let bytes = kitchen(&order, 48);
+        let slip = text(&bytes);
+        assert!(slip.contains("#12 CANCELLED") && slip.contains("X     X") && slip.contains(" CANCELLED "));
+        assert!(slip.contains("By  Ali") && slip.contains("Reason: Customer left - changed mind"));
+        assert!(slip.contains("4x CANCEL Burger"));
+        // The cut line is white on black.
+        assert!(bytes.windows(3).any(|w| w == [0x1d, b'B', 1]));
+    }
+
+    #[test]
+    fn a_slip_without_cancel_lines_is_never_white_on_black() {
+        let bytes = kitchen(&order(), 48);
+        assert!(!bytes.windows(3).any(|w| w == [0x1d, b'B', 1]));
     }
 
     #[test]
