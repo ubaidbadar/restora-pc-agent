@@ -2,6 +2,9 @@
 name = "restora-pc-agent"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "Restora Print: prints Restora slips on the printers connected to a Windows PC"
+repository = "https://github.com/ubaidbadar/restora-pc-agent"
 
 [dependencies]
 axum = "0.8"
