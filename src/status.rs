@@ -52,7 +52,7 @@ pub struct Snapshot {
 /// The one line shown first, worst news first. "Good" only when every layer checked out.
 pub fn headline(paired: bool, online: bool, set_up: usize, missing: usize, failing: usize, found: usize) -> Headline {
     let (tone, title, detail) = if !paired {
-        (Tone::Neutral, "Not connected to Restora yet".to_string(), "Type the 6-digit code from Restora to connect this PC.".to_string())
+        (Tone::Neutral, "Not connected to Restora yet".to_string(), "Click Connect to Restora below and sign in. It takes a minute.".to_string())
     } else if !online {
         (Tone::Warn, "No internet connection".to_string(), "New slips wait in Restora and print here as soon as the internet is back.".to_string())
     } else if set_up == 0 {
