@@ -44,10 +44,13 @@
   input:focus-visible { border-color: var(--primary); box-shadow: var(--ring); }
   input::placeholder { color: #94A3B8; }
   input[aria-invalid="true"] { border-color: var(--danger); }
-  button { font: inherit; font-weight: 600; margin-top: .75rem; min-height: 2.75rem; padding: .625rem 1rem; width: 100%; cursor: pointer; color: #fff; background: var(--primary); border: 0; border-radius: var(--radius); }
-  button:hover { background: var(--primary-hover); }
-  button:active { transform: translateY(1px); }
-  button:focus-visible { outline: none; box-shadow: var(--ring); }
+  button, .button { display: flex; align-items: center; justify-content: center; text-decoration: none; text-align: center; font: inherit; font-weight: 600; margin-top: .75rem; min-height: 2.75rem; padding: .625rem 1rem; width: 100%; cursor: pointer; color: #fff; background: var(--primary); border: 0; border-radius: var(--radius); }
+  button:hover, .button:hover { background: var(--primary-hover); }
+  button:active, .button:active { transform: translateY(1px); }
+  button:focus-visible, .button:focus-visible { outline: none; box-shadow: var(--ring); }
+  .button { min-height: 3.25rem; font-size: 1.0625rem; }
+  /* The code is the fallback: a quieter card under the button. */
+  #form label { font-weight: 600; color: var(--muted); }
   button:disabled { background: #CBD5E1; color: #475569; cursor: not-allowed; transform: none; }
   #message { min-height: 1.5em; margin-top: .5rem; }
   .error { color: var(--danger); font-weight: 600; }
@@ -80,10 +83,16 @@
     <div><h2 id="title">Checking…</h2><p id="detail"></p></div>
   </section>
 
+  <section id="quick" class="card" hidden>
+    <h2>Connect this PC to Restora</h2>
+    <p>Opens Restora in your browser. Sign in, allow it to reach this PC if the browser asks, and it connects by itself.</p>
+    <a class="button" id="open" href="https://app.restora.live/settings/printers" target="_blank" rel="noopener">Connect to Restora</a>
+  </section>
+
   <form id="form" class="card" hidden>
-    <label for="code">Pairing code</label>
-    <p id="how">In Restora, open Settings, then Printers, then add this PC. Type the 6-digit code it shows.</p>
-    <input id="code" inputmode="numeric" maxlength="6" autocomplete="off" autofocus placeholder="000000" aria-describedby="how message">
+    <label for="code">Or type a pairing code</label>
+    <p id="how">In Restora on any device, open Settings, then Printers, add this PC and type the 6-digit code it shows.</p>
+    <input id="code" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="000000" aria-describedby="how message">
     <button id="connect" disabled>Connect this PC</button>
     <p id="message" role="alert"></p>
   </form>
@@ -156,6 +165,7 @@
     $('detail').textContent = h.detail;
     $('version').textContent = status.version ? 'Version ' + status.version : '';
     $('form').hidden = status.paired;
+    $('quick').hidden = status.paired;
     $('hint').hidden = false;
     $('printersCard').hidden = !status.paired;
     $('recentCard').hidden = !status.paired;
@@ -166,8 +176,6 @@
       const recent = $('recent');
       recent.replaceChildren(...status.recent.map(recentRow));
       if (!status.recent.length) recent.append(el('li', 'empty', 'Nothing printed yet since Restora Print started.'));
-    } else if (!busy && document.activeElement !== code) {
-      code.focus();
     }
   }
 
@@ -178,6 +186,7 @@
     } catch {
       show({ paired: false, version: '', printers: [], recent: [], headline: { tone: 'bad', title: 'Restora Print is not running', detail: 'Open it again from the Start menu or the desktop icon.' } });
       $('form').hidden = true;
+      $('quick').hidden = true;
       $('hint').hidden = true;
     }
   }

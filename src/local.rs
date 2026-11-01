@@ -50,6 +50,8 @@ struct PrintRequest {
 #[derive(Deserialize)]
 struct PairRequest {
     code: String,
+    /// Sent by the web app: the API it uses, so the dev site pairs with the dev API.
+    api: Option<String>,
 }
 
 /// `origins` are the pages allowed to call the agent (the Restora web app); the agent's own setup page is always one.
@@ -88,13 +90,18 @@ async fn guard(State(local): State<Shared>, request: Request, next: Next) -> Res
     next.run(request).await
 }
 
-/// Where staff type the pairing code from Settings. Served by the agent itself, so no browser permission is needed.
-async fn setup_page() -> Html<&'static str> {
-    Html(include_str!("setup.html"))
+/// Where staff connect this PC: a button that opens Restora (which pairs it), or the pairing code typed in. Served by
+/// the agent itself, so no browser permission is needed. `RESTORA_APP` replaces the web app's address.
+async fn setup_page() -> Html<String> {
+    let page = include_str!("setup.html");
+    Html(match std::env::var("RESTORA_APP") {
+        Ok(app) => page.replace("https://app.restora.live", app.trim_end_matches('/')),
+        Err(_) => page.to_string(),
+    })
 }
 
 async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> Response {
-    match local.agent.pair(request.code.trim()).await {
+    match local.agent.pair(request.code.trim(), request.api.as_deref()).await {
         Ok(()) => Json(json!({ "paired": true })).into_response(),
         Err(message) => (StatusCode::BAD_REQUEST, Json(json!({ "message": message }))).into_response(),
     }

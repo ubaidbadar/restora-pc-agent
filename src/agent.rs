@@ -9,6 +9,18 @@ use std::{
 
 /// The API when none is set (`RESTORA_API` replaces it).
 const DEFAULT_API: &str = "https://restora.live/api/v1";
+/// The APIs the web app may pair this agent with: Restora and its dev site. `RESTORA_API` is one too.
+const KNOWN_APIS: [&str; 2] = [DEFAULT_API, "https://dev.restora.live/api/v1"];
+
+/// The API to pair with: the one the web app that sent the code uses, when it is a Restora one, else the default.
+pub fn api_for(asked: Option<&str>) -> Result<String, String> {
+    let default = std::env::var("RESTORA_API").unwrap_or_else(|_| DEFAULT_API.to_string());
+    match asked.map(|a| a.trim().trim_end_matches('/')) {
+        None | Some("") => Ok(default),
+        Some(api) if api == default || KNOWN_APIS.contains(&api) => Ok(api.to_string()),
+        Some(_) => Err("That Restora address is not allowed".to_string()),
+    }
+}
 
 /// What the local server and the backend loop share: who this agent is, and the slips already printed.
 pub struct Agent {
@@ -108,9 +120,10 @@ impl Agent {
         self.printed.lock().unwrap().insert(key);
     }
 
-    /// Pairs with the code from Settings; the backend answers the key this agent uses from then on.
-    pub async fn pair(&self, code: &str) -> Result<(), String> {
-        let api = std::env::var("RESTORA_API").unwrap_or_else(|_| DEFAULT_API.to_string());
+    /// Pairs with the code from Settings, typed here or sent by the web app open on this PC (with the API it uses); the
+    /// backend answers the key this agent uses from then on.
+    pub async fn pair(&self, code: &str, api: Option<&str>) -> Result<(), String> {
+        let api = api_for(api)?;
         let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": printers::list().unwrap_or_default() });
         let response = self.http.post(format!("{api}/print-agent/pair")).json(&body).send().await.map_err(|e| format!("Cannot reach Restora: {e}"))?;
         if !response.status().is_success() {
@@ -164,5 +177,12 @@ mod tests {
     fn retries_get_slower_and_settle_at_a_minute() {
         let seconds: Vec<u64> = (0..6).map(|attempt| retry_delay(attempt).as_secs()).collect();
         assert_eq!(seconds, [2, 5, 10, 30, 60, 60]);
+    }
+
+    #[test]
+    fn pairs_only_with_restora_apis() {
+        assert_eq!(api_for(None).unwrap(), DEFAULT_API);
+        assert_eq!(api_for(Some("https://dev.restora.live/api/v1/")).unwrap(), "https://dev.restora.live/api/v1");
+        assert!(api_for(Some("https://evil.example/api/v1")).is_err());
     }
 }
