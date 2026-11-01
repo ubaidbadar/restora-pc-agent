@@ -6,6 +6,7 @@ mod backend;
 mod config;
 mod escpos;
 mod local;
+mod logo;
 mod printers;
 mod slips;
 mod status;
