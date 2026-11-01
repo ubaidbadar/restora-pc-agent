@@ -50,6 +50,8 @@ struct PrintRequest {
 #[derive(Deserialize)]
 struct PairRequest {
     code: String,
+    /// Sent by the web app: the API it uses, so the dev site pairs with the dev API.
+    api: Option<String>,
 }
 
 /// `origins` are the pages allowed to call the agent (the Restora web app); the agent's own setup page is always one.
@@ -94,7 +96,7 @@ async fn setup_page() -> Html<&'static str> {
 }
 
 async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> Response {
-    match local.agent.pair(request.code.trim()).await {
+    match local.agent.pair(request.code.trim(), request.api.as_deref()).await {
         Ok(()) => Json(json!({ "paired": true })).into_response(),
         Err(message) => (StatusCode::BAD_REQUEST, Json(json!({ "message": message }))).into_response(),
     }

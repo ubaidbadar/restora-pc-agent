@@ -28,7 +28,7 @@ fn main() {
     start_logging();
     // The Restora pages allowed to call the agent; RESTORA_ORIGINS (comma separated) replaces them.
     let origins = std::env::var("RESTORA_ORIGINS")
-        .unwrap_or_else(|_| "https://app.restora.live,http://localhost:3000".to_string())
+        .unwrap_or_else(|_| "https://app.restora.live,https://dev-app.restora.live,https://restora-live.web.app,https://restora-live.firebaseapp.com,https://restora-live-dev.web.app,https://restora-live-dev.firebaseapp.com,http://localhost:3000".to_string())
         .split(',')
         .map(|o| o.trim().trim_end_matches('/').to_string())
         .filter(|o| !o.is_empty())
