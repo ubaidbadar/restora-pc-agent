@@ -118,8 +118,11 @@ async fn list_printers() -> Response {
     }
 }
 
-async fn print(State(local): State<Shared>, Json(request): Json<PrintRequest>) -> Response {
+async fn print(State(local): State<Shared>, Json(mut request): Json<PrintRequest>) -> Response {
     let agent = local.agent.clone();
+    if request.kind == "receipt" {
+        request.header.logo_file = crate::logo::load(&agent.http, request.header.logo.as_deref()).await;
+    }
     // The blocking Windows calls stay off the async threads.
     let result = tokio::task::spawn_blocking(move || {
         let slip = Slip { printer: &request.printer, kind: &request.kind, order_key: &request.order_key, width: request.width.unwrap_or(48).clamp(24, 64), copies: request.copies.unwrap_or(1), order: &request.order, header: &request.header };
