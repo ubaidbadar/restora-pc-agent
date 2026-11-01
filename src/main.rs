@@ -52,6 +52,11 @@ fn main() {
     runtime.spawn(async move { axum::serve(listener, local::router(agent, origins)).await.unwrap() });
     // Not paired with Restora yet: the setup page opens by itself, so nobody has to find it.
     if !paired {
+        // First-run pairing happens in the authenticated Restora web app.
+        // The local setup page remains available from the tray as a manual fallback.
+        #[cfg(windows)]
+        tray::open("https://app.restora.live/settings/printers");
+        #[cfg(not(windows))]
         local::open_setup();
     }
 
