@@ -52,7 +52,7 @@ pub async fn load(http: &reqwest::Client, url: Option<&str>) -> Option<Vec<u8>> 
     Some(bytes.to_vec())
 }
 
-/// The ESC/POS bytes that print `file` (PNG, JPEG or WebP) centred on a roll `width` characters wide: at most half
+/// The ESC/POS bytes that print `file` (PNG, JPEG, WebP or GIF) centred on a roll `width` characters wide: at most half
 /// the roll wide and 160 dots tall, in black and white with Floyd–Steinberg dithering, see-through parts white.
 pub fn raster(file: &[u8], width: usize) -> Option<Vec<u8>> {
     let image = image::load_from_memory(file).ok()?;
