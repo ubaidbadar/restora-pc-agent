@@ -7,8 +7,8 @@ name: Release
 # The exe is also put in the Cloudflare R2 bucket, once these repository secrets are set (Settings > Secrets and
 # variables > Actions): R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, and R2_PUBLIC_URL (the
 # bucket's public address, e.g. https://downloads.restora.live). Each release adds:
-#   restora-pc-agent/v1.2.3/restora-pc-agent.exe   that version, kept
-#   restora-pc-agent/latest/restora-pc-agent.exe   always the newest: what the Download button links to
+#   restora-pc-agent/v1.2.3/restora.exe   that version, kept
+#   restora-pc-agent/latest/restora.exe   always the newest: what the Download button links to
 #   restora-pc-agent/latest.json                   {"version", "url"} of the newest, for an update check later
 on:
   push:
@@ -86,13 +86,17 @@ jobs:
           exe=target/release/restora-pc-agent.exe
           type=application/vnd.microsoft.portable-executable
           base="s3://$R2_BUCKET/restora-pc-agent"
-          aws s3 cp "$exe" "$base/v$VERSION/restora-pc-agent.exe" --endpoint-url "$ENDPOINT" --content-type "$type"
-          aws s3 cp "$exe" "$base/latest/restora-pc-agent.exe" --endpoint-url "$ENDPOINT" --content-type "$type" --cache-control "no-cache"
-          printf '{"version":"%s","url":"%s/restora-pc-agent/v%s/restora-pc-agent.exe"}\n' "$VERSION" "${R2_PUBLIC_URL%/}" "$VERSION" > latest.json
+          aws s3 cp "$exe" "$base/v$VERSION/restora.exe" --endpoint-url "$ENDPOINT" --content-type "$type"
+          aws s3 cp "$exe" "$base/latest/restora.exe" --endpoint-url "$ENDPOINT" --content-type "$type" --cache-control "no-cache"
+          printf '{"version":"%s","url":"%s/restora-pc-agent/v%s/restora.exe"}\n' "$VERSION" "${R2_PUBLIC_URL%/}" "$VERSION" > latest.json
           aws s3 cp latest.json "$base/latest.json" --endpoint-url "$ENDPOINT" --content-type application/json --cache-control "no-cache"
-          echo "Uploaded: ${R2_PUBLIC_URL%/}/restora-pc-agent/latest/restora-pc-agent.exe" >> "$GITHUB_STEP_SUMMARY"
+          echo "Uploaded: ${R2_PUBLIC_URL%/}/restora-pc-agent/latest/restora.exe" >> "$GITHUB_STEP_SUMMARY"
 
       - if: steps.version.outputs.skip != 'true'
-        run: gh release create "v${{ steps.version.outputs.version }}" target/release/restora-pc-agent.exe --target "${{ github.sha }}" --title "v${{ steps.version.outputs.version }}" --generate-notes
+        shell: bash
+        run: cp target/release/restora-pc-agent.exe restora.exe
+
+      - if: steps.version.outputs.skip != 'true'
+        run: gh release create "v${{ steps.version.outputs.version }}" restora.exe --target "${{ github.sha }}" --title "v${{ steps.version.outputs.version }}" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
