@@ -2,7 +2,7 @@
 
 A small Windows tray app that prints [Restora](https://restora.live) slips (kitchen tickets and receipts) on the printers connected to a PC, with or without internet. Open source under the [MIT licence](LICENSE).
 
-**Download:** the newest `restora-pc-agent.exe` is on the [Releases page](https://github.com/ubaidbadar/restora-pc-agent/releases/latest). Run it, and when its setup page opens, type the 6-digit code from Restora (Settings, then Printers).
+**Download:** the newest `restora.exe` is on the [Releases page](https://github.com/ubaidbadar/restora-pc-agent/releases/latest). Run it to open Restora printer settings in your default browser. Sign in to an authorized branch and click **Connect this PC**. The six-digit code in the local setup page is still available as a fallback.
 
 ## How it works
 - **Pair:** in Restora, Settings, then Printers, add the PC and get a 6-digit code. Run the agent, open its setup page (tray icon, then Open setup page, or http://127.0.0.1:17777) and type the code. The agent keeps its key in `%APPDATA%\restora\agent.json`.
