@@ -1,18 +1,27 @@
 //! The tray icon: the only window the agent has. Windows only.
-use crate::{agent::Agent, config, status};
+use crate::{agent::Agent, status};
+#[cfg(not(feature = "store"))]
+use crate::config;
 use std::sync::Arc;
-use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+#[cfg(not(feature = "store"))]
+use tray_icon::menu::CheckMenuItem;
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, SetTimer, TranslateMessage};
+#[cfg(not(feature = "store"))]
 use winreg::{RegKey, enums::HKEY_CURRENT_USER};
 
+#[cfg(not(feature = "store"))]
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(not(feature = "store"))]
 const RUN_NAME: &str = "RestoraPrintAgent";
 
+#[cfg(not(feature = "store"))]
 fn autostart_enabled() -> bool {
     RegKey::predef(HKEY_CURRENT_USER).open_subkey(RUN_KEY).and_then(|key| key.get_value::<String, _>(RUN_NAME)).is_ok()
 }
 
+#[cfg(not(feature = "store"))]
 fn set_autostart(on: bool) {
     let Ok((key, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY) else { return };
     if on {
@@ -44,9 +53,11 @@ fn summary(snapshot: &status::Snapshot) -> String {
     format!("Restora Print: {}", snapshot.headline.title)
 }
 
-/// Shows the tray icon and handles it until Quit. The first run turns "Start with Windows" on, unless it was turned off.
+/// Shows the tray icon and handles it until Quit. Portable builds enable startup unless opted out.
+/// Store builds delegate startup to Windows Settings and the package manifest.
 /// A click on the icon opens the setup page; the right click shows the menu, whose first line is the current status.
 pub fn run(setup_url: &str, agent: Arc<Agent>) {
+    #[cfg(not(feature = "store"))]
     if !autostart_enabled() && !config::folder().join("autostart.off").exists() {
         set_autostart(true);
     }
@@ -54,6 +65,9 @@ pub fn run(setup_url: &str, agent: Arc<Agent>) {
     let menu = Menu::new();
     let state = MenuItem::new("Starting…", false, None);
     let setup = MenuItem::new("Open Restora Print", true, None);
+    #[cfg(feature = "store")]
+    let autostart = MenuItem::new("Manage startup in Windows Settings", true, None);
+    #[cfg(not(feature = "store"))]
     let autostart = CheckMenuItem::new("Start with Windows", true, autostart_enabled(), None);
     let quit = MenuItem::new("Quit (stops printing)", true, None);
     let _ = menu.append_items(&[&state, &PredefinedMenuItem::separator(), &setup, &autostart, &PredefinedMenuItem::separator(), &quit]);
@@ -76,6 +90,9 @@ pub fn run(setup_url: &str, agent: Arc<Agent>) {
             if event.id == *setup.id() {
                 open(setup_url);
             } else if event.id == *autostart.id() {
+                #[cfg(feature = "store")]
+                open("ms-settings:startupapps");
+                #[cfg(not(feature = "store"))]
                 set_autostart(autostart.is_checked());
             } else if event.id == *quit.id() {
                 return;
@@ -96,3 +113,4 @@ pub fn run(setup_url: &str, agent: Arc<Agent>) {
         }
     }
 }
+

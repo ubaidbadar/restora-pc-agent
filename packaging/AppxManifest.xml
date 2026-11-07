@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap desktop rescap">
+  <!-- The packaging script replaces identity values with Partner Center values. -->
+  <Identity Name="Restora.Print.Development" Publisher="CN=Restora.Development"
+            Version="0.1.0.0" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Restora Print</DisplayName>
+    <PublisherDisplayName>Restora</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Resources><Resource Language="en-us" /></Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Applications>
+    <Application Id="RestoraPrint" Executable="restora-pc-agent.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Restora Print" Description="Print Restora receipts and kitchen tickets on your PC printers."
+                          BackgroundColor="transparent" Square44x44Logo="Assets\Square44x44Logo.png"
+                          Square150x150Logo="Assets\Square150x150Logo.png" />
+      <Extensions>
+        <desktop:Extension Category="windows.startupTask" Executable="restora-pc-agent.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="RestoraPrintStartup" Enabled="false" DisplayName="Restora Print" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
+</Package>

@@ -6,6 +6,10 @@ license = "MIT"
 description = "Restora Print: prints Restora slips on the printers connected to a Windows PC"
 repository = "https://github.com/ubaidbadar/restora-pc-agent"
 
+[features]
+# Store packages use the manifest startup task instead of a registry Run entry.
+store = []
+
 [dependencies]
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
@@ -25,3 +29,4 @@ winreg = "0.55"
 
 [build-dependencies]
 winresource = "0.1"
+
