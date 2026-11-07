@@ -87,14 +87,21 @@ impl Agent {
 
     /// Prints the slip unless it was printed before. Answers whether it printed now.
     pub fn print(&self, slip: &Slip) -> Result<bool, String> {
-        if self.printed.lock().unwrap().contains(&Self::key(slip)) {
+        // Hold the mutex through the spooler write and journal update. Two concurrent
+        // submissions of one slip must never both pass the duplicate check.
+        let mut printed = self.printed.lock().unwrap();
+        let key = Self::key(slip);
+        if printed.contains(&key) {
             return Ok(false);
         }
         let bytes = slips::render(slip.kind, slip.order, slip.header, slip.width).ok_or("kind must be kitchen or receipt")?;
         let sent = (0..slip.copies.clamp(1, 5)).try_for_each(|_| printers::print_raw(slip.printer, &bytes));
         self.note(slip, sent.as_ref().err().cloned());
         sent?;
-        self.remember(Self::key(slip));
+        if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(config::folder().join("printed.log")) {
+            let _ = writeln!(log, "{key}");
+        }
+        printed.insert(key);
         Ok(true)
     }
 
@@ -111,13 +118,6 @@ impl Agent {
 
     pub fn recent(&self) -> Vec<Recent> {
         self.recent.lock().unwrap().iter().cloned().collect()
-    }
-
-    fn remember(&self, key: String) {
-        if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(config::folder().join("printed.log")) {
-            let _ = writeln!(log, "{key}");
-        }
-        self.printed.lock().unwrap().insert(key);
     }
 
     /// Pairs with the code from Settings, typed here or sent by the web app open on this PC (with the API it uses); the
@@ -177,6 +177,33 @@ mod tests {
     fn retries_get_slower_and_settle_at_a_minute() {
         let seconds: Vec<u64> = (0..6).map(|attempt| retry_delay(attempt).as_secs()).collect();
         assert_eq!(seconds, [2, 5, 10, 30, 60, 60]);
+    }
+
+    #[test]
+    fn print_identity_includes_order_kind_and_physical_printer() {
+        let order: slips::Order = serde_json::from_value(serde_json::json!({
+            "dailyToken": "A-1", "type": "takeaway", "items": []
+        })).unwrap();
+        let header = slips::Header::default();
+        let mut slip = Slip {
+            order_key: "order-1",
+            kind: "kitchen",
+            printer: "Kitchen",
+            width: 32,
+            copies: 1,
+            order: &order,
+            header: &header,
+        };
+        let first = Agent::key(&slip);
+        assert_eq!(first, "order-1|kitchen|Kitchen");
+        slip.kind = "receipt";
+        assert_ne!(Agent::key(&slip), first);
+        slip.kind = "kitchen";
+        slip.printer = "Bar";
+        assert_ne!(Agent::key(&slip), first);
+        slip.printer = "Kitchen";
+        slip.order_key = "order-2";
+        assert_ne!(Agent::key(&slip), first);
     }
 
     #[test]
