@@ -107,3 +107,45 @@ fn ascii_string(text: &str) -> String {
 fn ascii(text: &str) -> Vec<u8> {
     ascii_string(text).into_bytes()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn receipt_widths_generate_the_expected_rule_lengths() {
+        for width in [32, 48] {
+            let mut printer = Escpos::new(width);
+            printer.rule('-');
+            assert_eq!(&printer.bytes[2..], format!("{}\\n", "-".repeat(width)).as_bytes());
+        }
+    }
+
+    #[test]
+    fn double_size_uses_half_the_paper_columns() {
+        let mut printer = Escpos::new(32);
+        printer.size(2);
+        printer.rule('-');
+        assert!(printer.bytes.ends_with(format!("{}\\n", "-".repeat(16)).as_bytes()));
+    }
+
+    #[test]
+    fn monetary_columns_are_kept_right_aligned() {
+        let mut printer = Escpos::new(32);
+        printer.pair("Total", "Rs 2,900");
+        assert!(printer.bytes.ends_with(b"Total                   Rs 2,900\\n"));
+    }
+
+    #[test]
+    fn thermal_slips_end_with_a_paper_cut_command() {
+        let mut printer = Escpos::new(48);
+        printer.cut();
+        assert!(printer.bytes.ends_with(&[b'\\n', b'\\n', b'\\n', 0x1d, b'V', 66, 0]));
+    }
+
+    #[test]
+    fn unsupported_unicode_is_replaced_predictably() {
+        assert_eq!(ascii_string("Chicken × 2 — hot"), "Chicken x 2 - hot");
+        assert_eq!(ascii_string("کچن"), "???");
+    }
+}
