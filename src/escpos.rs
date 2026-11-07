@@ -117,7 +117,7 @@ mod tests {
         for width in [32, 48] {
             let mut printer = Escpos::new(width);
             printer.rule('-');
-            assert_eq!(&printer.bytes[2..], format!("{}\\n", "-".repeat(width)).as_bytes());
+            assert_eq!(&printer.bytes[2..], format!("{}\n", "-".repeat(width)).as_bytes());
         }
     }
 
@@ -126,21 +126,21 @@ mod tests {
         let mut printer = Escpos::new(32);
         printer.size(2);
         printer.rule('-');
-        assert!(printer.bytes.ends_with(format!("{}\\n", "-".repeat(16)).as_bytes()));
+        assert!(printer.bytes.ends_with(format!("{}\n", "-".repeat(16)).as_bytes()));
     }
 
     #[test]
     fn monetary_columns_are_kept_right_aligned() {
         let mut printer = Escpos::new(32);
         printer.pair("Total", "Rs 2,900");
-        assert!(printer.bytes.ends_with(b"Total                   Rs 2,900\\n"));
+        assert!(printer.bytes.ends_with(b"Total                   Rs 2,900\n"));
     }
 
     #[test]
     fn thermal_slips_end_with_a_paper_cut_command() {
         let mut printer = Escpos::new(48);
         printer.cut();
-        assert!(printer.bytes.ends_with(&[b'\\n', b'\\n', b'\\n', 0x1d, b'V', 66, 0]));
+        assert!(printer.bytes.ends_with(&[b'\n', b'\n', b'\n', 0x1d, b'V', 66, 0]));
     }
 
     #[test]
