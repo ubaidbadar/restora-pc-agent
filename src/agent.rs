@@ -180,6 +180,31 @@ mod tests {
     }
 
     #[test]
+    fn print_identity_includes_order_kind_and_physical_printer() {
+        let order: slips::Order = serde_json::from_value(serde_json::json!({
+            "dailyToken": "A-1", "type": "takeaway", "items": []
+        })).unwrap();
+        let header = slips::Header::default();
+        let slip = |key, kind, printer| Slip {
+            order_key: key,
+            kind,
+            printer,
+            width: 32,
+            copies: 1,
+            order: &order,
+            header: &header,
+        };
+        assert_ne!(Agent::key(&slip("order-1", "kitchen", "Kitchen")),
+                   Agent::key(&slip("order-1", "receipt", "Kitchen")));
+        assert_ne!(Agent::key(&slip("order-1", "kitchen", "Kitchen")),
+                   Agent::key(&slip("order-1", "kitchen", "Bar")));
+        assert_ne!(Agent::key(&slip("order-1", "kitchen", "Kitchen")),
+                   Agent::key(&slip("order-2", "kitchen", "Kitchen")));
+        assert_eq!(Agent::key(&slip("order-1", "kitchen", "Kitchen")),
+                   "order-1|kitchen|Kitchen");
+    }
+
+    #[test]
     fn pairs_only_with_restora_apis() {
         assert_eq!(api_for(None).unwrap(), DEFAULT_API);
         assert_eq!(api_for(Some("https://dev.restora.live/api/v1/")).unwrap(), "https://dev.restora.live/api/v1");
