@@ -185,23 +185,25 @@ mod tests {
             "dailyToken": "A-1", "type": "takeaway", "items": []
         })).unwrap();
         let header = slips::Header::default();
-        let slip = |key, kind, printer| Slip {
-            order_key: key,
-            kind,
-            printer,
+        let mut slip = Slip {
+            order_key: "order-1",
+            kind: "kitchen",
+            printer: "Kitchen",
             width: 32,
             copies: 1,
             order: &order,
             header: &header,
         };
-        assert_ne!(Agent::key(&slip("order-1", "kitchen", "Kitchen")),
-                   Agent::key(&slip("order-1", "receipt", "Kitchen")));
-        assert_ne!(Agent::key(&slip("order-1", "kitchen", "Kitchen")),
-                   Agent::key(&slip("order-1", "kitchen", "Bar")));
-        assert_ne!(Agent::key(&slip("order-1", "kitchen", "Kitchen")),
-                   Agent::key(&slip("order-2", "kitchen", "Kitchen")));
-        assert_eq!(Agent::key(&slip("order-1", "kitchen", "Kitchen")),
-                   "order-1|kitchen|Kitchen");
+        let first = Agent::key(&slip);
+        assert_eq!(first, "order-1|kitchen|Kitchen");
+        slip.kind = "receipt";
+        assert_ne!(Agent::key(&slip), first);
+        slip.kind = "kitchen";
+        slip.printer = "Bar";
+        assert_ne!(Agent::key(&slip), first);
+        slip.printer = "Kitchen";
+        slip.order_key = "order-2";
+        assert_ne!(Agent::key(&slip), first);
     }
 
     #[test]
