@@ -87,14 +87,21 @@ impl Agent {
 
     /// Prints the slip unless it was printed before. Answers whether it printed now.
     pub fn print(&self, slip: &Slip) -> Result<bool, String> {
-        if self.printed.lock().unwrap().contains(&Self::key(slip)) {
+        // Hold the mutex through the spooler write and journal update. Two concurrent
+        // submissions of one slip must never both pass the duplicate check.
+        let mut printed = self.printed.lock().unwrap();
+        let key = Self::key(slip);
+        if printed.contains(&key) {
             return Ok(false);
         }
         let bytes = slips::render(slip.kind, slip.order, slip.header, slip.width).ok_or("kind must be kitchen or receipt")?;
         let sent = (0..slip.copies.clamp(1, 5)).try_for_each(|_| printers::print_raw(slip.printer, &bytes));
         self.note(slip, sent.as_ref().err().cloned());
         sent?;
-        self.remember(Self::key(slip));
+        if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(config::folder().join("printed.log")) {
+            let _ = writeln!(log, "{key}");
+        }
+        printed.insert(key);
         Ok(true)
     }
 
@@ -111,13 +118,6 @@ impl Agent {
 
     pub fn recent(&self) -> Vec<Recent> {
         self.recent.lock().unwrap().iter().cloned().collect()
-    }
-
-    fn remember(&self, key: String) {
-        if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(config::folder().join("printed.log")) {
-            let _ = writeln!(log, "{key}");
-        }
-        self.printed.lock().unwrap().insert(key);
     }
 
     /// Pairs with the code from Settings, typed here or sent by the web app open on this PC (with the API it uses); the
