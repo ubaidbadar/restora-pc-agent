@@ -73,16 +73,37 @@ pub enum Side {
 
 /// Wraps text to `width` characters per line, breaking at spaces.
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
     let mut lines = Vec::new();
     let mut current = String::new();
-    for word in ascii_string(text).split_whitespace() {
-        if !current.is_empty() && current.len() + 1 + word.len() > width {
-            lines.push(std::mem::take(&mut current));
+    // All characters have been mapped to ASCII, so byte slices are safe here.
+    let normalized = ascii_string(text);
+    for word in normalized.split_whitespace() {
+        let mut remaining = word;
+        while !remaining.is_empty() {
+            let separator = usize::from(!current.is_empty());
+            let available = width.saturating_sub(current.len() + separator);
+            if available == 0 {
+                lines.push(std::mem::take(&mut current));
+                continue;
+            }
+            if remaining.len() <= available {
+                if separator != 0 {
+                    current.push(' ');
+                }
+                current.push_str(remaining);
+                break;
+            }
+            if !current.is_empty() {
+                lines.push(std::mem::take(&mut current));
+                continue;
+            }
+            let (chunk, tail) = remaining.split_at(available);
+            lines.push(chunk.to_string());
+            remaining = tail;
         }
-        if !current.is_empty() {
-            current.push(' ');
-        }
-        current.push_str(word);
     }
     if !current.is_empty() {
         lines.push(current);
@@ -141,6 +162,25 @@ mod tests {
         let mut printer = Escpos::new(48);
         printer.cut();
         assert!(printer.bytes.ends_with(&[b'\n', b'\n', b'\n', 0x1d, b'V', 66, 0]));
+    }
+
+    #[test]
+    fn long_unbroken_item_names_fit_the_receipt_width() {
+        assert_eq!(wrap("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 8),
+                   vec!["ABCDEFGH", "IJKLMNOP", "QRSTUVWX", "YZ"]);
+        assert_eq!(wrap("Karahi ABCDEFGHIJKLMNOP", 8),
+                   vec!["Karahi", "ABCDEFGH", "IJKLMNOP"]);
+    }
+
+    #[test]
+    fn wrapping_never_exceeds_requested_columns() {
+        for width in [8, 16, 32, 48] {
+            let lines = wrap("Large-Customized-Item-Without-Spaces extra toppings and notes", width);
+            assert!(!lines.is_empty());
+            assert!(lines.iter().all(|line| line.len() <= width));
+        }
+        assert!(wrap("no room", 0).is_empty());
+        assert!(wrap("   ", 32).is_empty());
     }
 
     #[test]
