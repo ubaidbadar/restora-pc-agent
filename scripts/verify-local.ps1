@@ -12,13 +12,13 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "cargo $($Arguments -join ' ') failed ($LASTEXITCODE)" }
     }
 
-    Invoke-Cargo @('fmt', '--all', '--', '--check')
-    Invoke-Cargo @('clippy', '--all-targets', '--locked', '--', '-D', 'warnings')
-    Invoke-Cargo @('test', '--locked')
+    Invoke-Cargo -Arguments @('fmt', '--all', '--', '--check')
+    Invoke-Cargo -Arguments @('clippy', '--all-targets', '--locked', '--', '-D', 'warnings')
+    Invoke-Cargo -Arguments @('test', '--locked')
 
     if ($Release) {
         if (-not $IsWindows) { throw 'Release binaries for this agent must be built and tested on Windows.' }
-        Invoke-Cargo @('build', '--release', '--locked')
+        Invoke-Cargo -Arguments @('build', '--release', '--locked')
         $exe = Join-Path $root 'target/release/restora-pc-agent.exe'
         if (-not (Test-Path $exe)) { throw "Expected Windows executable not found: $exe" }
         $hash = Get-FileHash -Algorithm SHA256 -Path $exe
