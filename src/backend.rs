@@ -81,10 +81,13 @@ pub async fn run(agent: Arc<Agent>) {
         }
         let Ok(jobs) = response.json::<Vec<Job>>().await else { continue };
 
-        for job in jobs {
+        for mut job in jobs {
             let waiting = trying.get(&job.id);
             if waiting.is_some_and(|t| Instant::now() < t.next) {
                 continue;
+            }
+            if job.kind == "receipt" {
+                job.header.logo_file = crate::logo::load(&agent.http, job.header.logo.as_deref()).await;
             }
             let slip = Slip { printer: &job.printer, kind: &job.kind, order_key: &job.order_key, width: job.width, copies: job.copies, order: &job.order, header: &job.header };
             let result = match tokio::task::block_in_place(|| agent.print(&slip)) {

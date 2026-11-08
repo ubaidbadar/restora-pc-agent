@@ -108,6 +108,11 @@ pub struct Header {
     pub ntn: Option<String>,
     pub strn: Option<String>,
     pub footer: Option<String>,
+    /// The logo's address (https, or a data URL), printed at the top of a receipt.
+    pub logo: Option<String>,
+    /// The logo's image file, loaded by the agent before printing (`logo::load`), never sent.
+    #[serde(skip)]
+    pub logo_file: Option<Vec<u8>>,
 }
 
 /// 12345.6 -> "12,346"
@@ -295,6 +300,10 @@ pub fn kitchen(order: &Order, width: usize) -> Vec<u8> {
 pub fn receipt(order: &Order, header: &Header, width: usize) -> Vec<u8> {
     let mut p = Escpos::new(width);
     p.align(Side::Center);
+    if let Some(image) = header.logo_file.as_deref().and_then(|file| crate::logo::raster(file, width)) {
+        p.bytes.extend(image);
+        p.line("");
+    }
     p.bold(true);
     p.size(2);
     for text in wrap(&header.restaurant, width / 2) {
@@ -481,5 +490,18 @@ mod tests {
         // Double-size lines (header, total) use half the characters; every other line fits 32.
         assert!(slip.lines().all(|l| l.len() <= 32), "{slip}");
         assert!(bytes.ends_with(&[0x1d, b'V', 66, 0]));
+    }
+
+    #[test]
+    fn receipt_starts_with_the_logo_when_there_is_one() {
+        let mut file = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(40, 40, image::Rgba([0, 0, 0, 255])).write_to(&mut file, image::ImageFormat::Png).unwrap();
+        let header = Header { restaurant: "Karahi House".into(), logo_file: Some(file.into_inner()), ..Header::default() };
+        let bytes = receipt(&order(), &header, 48);
+        let logo = bytes.windows(4).position(|w| w == [0x1d, b'v', b'0', 0]).expect("a raster image");
+        let name = bytes.windows(12).position(|w| w == b"Karahi House").unwrap();
+        assert!(logo < name, "the logo is above the name");
+        assert!(!receipt(&order(), &Header::default(), 48).windows(4).any(|w| w == [0x1d, b'v', b'0', 0]));
+        assert!(!kitchen(&order(), 48).windows(4).any(|w| w == [0x1d, b'v', b'0', 0]), "kitchen slips have no logo");
     }
 }
