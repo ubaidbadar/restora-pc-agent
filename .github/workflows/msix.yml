@@ -1,0 +1,117 @@
+name: MSIX
+
+# Builds the Microsoft Store package (unsigned) for Restora Agent and
+# uploads it as a workflow artifact. Microsoft signs the package after
+# Store certification; the artifact here is NOT a customer installer
+# and must not be distributed as one.
+#
+# NAME HOLD (2026-11-09): the app is now "Restora Agent", not
+# "Restora Print". The Identity Name in packaging/AppxManifest.xml
+# (BadarDigital.RestoraPrint) is CONFIRMED 2026-11-09 — Partner
+# Center is still checking whether draft product 9P6VNX5KVJL6 can be
+# renamed or a new product is needed. Do NOT submit until the reserved
+# identity is confirmed. Publisher and version below ARE confirmed.
+# The "Verify Store identity" step checks Publisher + version exactly
+# and rejects stale/placeholder Identity Names, but only warns (does
+# not fail) if the Identity Name is not yet the expected confirmed one. This workflow deliberately does NOT use
+# scripts/build-store.ps1: that script derives the version from Cargo.toml
+# (currently 0.1.0, which it rejects) and rewrites the manifest from
+# parameters. The Store version is tracked in the manifest instead.
+# Cargo.toml's version is left untouched (release.yml rewrites it
+# in-build only for the standalone exe release).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/msix.yml'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'assets/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MSIX_VERSION: 0.1.12.0
+  PACKAGE_NAME: RestoraAgent-0.1.12.0.msix
+
+jobs:
+  msix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable, MSVC target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Verify Store identity and assets
+        shell: pwsh
+        run: |
+          [xml]$manifest = Get-Content packaging/AppxManifest.xml -Raw
+          if ($manifest.Package.Identity.Name -eq 'Restora.Print.Development') {
+            throw "Manifest still has the PR #17 placeholder Identity Name 'Restora.Print.Development'."
+          }
+          if ($manifest.Package.Identity.Name -notlike 'BadarDigital.*') {
+            throw "Manifest Identity Name is '$($manifest.Package.Identity.Name)', expected a 'BadarDigital.*' Partner Center identity."
+          }
+          if ($manifest.Package.Identity.Name -ne 'BadarDigital.RestoraPrint') {
+            Write-Warning "Identity Name '$($manifest.Package.Identity.Name)' is not the confirmed 'BadarDigital.RestoraPrint' — do NOT submit this package yet."
+          }
+          if ($manifest.Package.Identity.Publisher -ne 'CN=72D821D7-890E-4CCA-94D2-675D84F355AA') {
+            throw "Manifest Identity Publisher is '$($manifest.Package.Identity.Publisher)', expected the Partner Center Publisher ID."
+          }
+          if ($manifest.Package.Identity.Version -ne $env:MSIX_VERSION) {
+            throw "Manifest Identity Version is '$($manifest.Package.Identity.Version)', expected '$env:MSIX_VERSION'."
+          }
+          foreach ($asset in 'StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png', 'SplashScreen.png') {
+            if (-not (Test-Path "packaging/Assets/$asset")) {
+              throw "Missing packaging asset: packaging/Assets/$asset"
+            }
+          }
+
+      - name: Build the Store exe
+        # The "store" feature disables the HKCU Run-key autostart in
+        # src/tray.rs (virtualised under MSIX and useless there); startup
+        # is the manifest windows.startupTask extension instead, managed
+        # from Windows Settings. Static CRT so no VC++ runtime is needed
+        # on customer PCs.
+        run: cargo build --release --locked --features store --target x86_64-pc-windows-msvc
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+
+      - name: Stage the package
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'msix-stage'
+          New-Item -ItemType Directory -Path (Join-Path $stage 'Assets') -Force | Out-Null
+          Copy-Item 'target\x86_64-pc-windows-msvc\release\restora-pc-agent.exe' $stage
+          Copy-Item LICENSE $stage
+          Copy-Item 'packaging\AppxManifest.xml' $stage
+          Copy-Item 'packaging\Assets\*.png' (Join-Path $stage 'Assets')
+
+      - name: Pack the MSIX (unsigned)
+        # Unsigned on purpose: Partner Center / the Store signs the
+        # package on submission. Do not install this artifact directly
+        # on customer PCs.
+        shell: pwsh
+        run: |
+          $makeappx = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
+          if (-not $makeappx) { throw 'Install the Windows SDK (MakeAppx.exe is required).' }
+          & $makeappx.FullName pack /o /h SHA256 /d (Join-Path $env:RUNNER_TEMP 'msix-stage') /p "$env:GITHUB_WORKSPACE\$env:PACKAGE_NAME"
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX validation or packaging failed.' }
+          Get-FileHash -Algorithm SHA256 "$env:GITHUB_WORKSPACE\$env:PACKAGE_NAME"
+
+      - name: Upload the MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RestoraAgent-0.1.12.0-msix
+          path: RestoraAgent-0.1.12.0.msix
+          if-no-files-found: error

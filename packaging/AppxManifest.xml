@@ -1,32 +1,111 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
-         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-         IgnorableNamespaces="uap desktop rescap">
-  <!-- The packaging script replaces identity values with Partner Center values. -->
-  <Identity Name="Restora.Print.Development" Publisher="CN=Restora.Development"
-            Version="0.1.0.0" ProcessorArchitecture="x64" />
+<!--
+  Restora Agent — Microsoft Store package manifest.
+
+  NAME HOLD (2026-11-09): the user prefers "Restora Agent" over
+  "Restora Print". The "Restora Print" product was reserved in Partner
+  Center on 2026-11-09 (Store ID 9P6VNX5KVJL6, In draft), and whether
+  that draft product can be renamed — or a new product is needed — is
+  still being checked in Partner Center. The Identity Name below
+  (BadarDigital.RestoraPrint) is CONFIRMED 2026-11-09: rename changed dashboard name only; package identity stays BadarDigital.RestoraPrint
+  assume it, and do NOT submit this package until the reserved
+  identity is confirmed. Publisher and version below ARE confirmed.
+  Identity values are the verified Partner Center values for the
+  "Badar Digital" account (seller ID 97202990), checked 2026-11-09:
+    Identity Name: BadarDigital.RestoraPrint  [CONFIRMED 2026-11-09 — dashboard name is Restora Agent, package identity unchanged]
+    Publisher:     CN=72D821D7-890E-4CCA-94D2-675D84F355AA
+    Version:       0.1.12.0 (matches the latest GitHub release, v0.1.12;
+                   Cargo.toml still says 0.1.0 — release.yml rewrites the
+                   version in-build only, so nothing is committed back.
+                   Do NOT change this version by hand: bump it only when
+                   the Store package version changes.)
+  They MUST match the Partner Center product identity exactly, or the
+  Store submission will reject the package.
+
+  The package is built unsigned by .github/workflows/msix.yml
+  (cargo build in release mode with the store feature, then MakeAppx).
+  Microsoft signs it after Store certification; it is NOT a customer
+  installer and must not be distributed as one.
+
+  Assets in packaging/Assets are generated from assets/restora.ico
+  (the same icon build.rs embeds in the exe). Wide310x150Logo and
+  SplashScreen are the icon centred on a transparent canvas.
+
+  Known limitation, NOT verified here: the app listens on
+  127.0.0.1:17777 (src/local.rs) and the Restora web app posts slips to
+  it from the browser. privateNetworkClientServer is declared below,
+  but loopback behaviour of the packaged app MUST be verified on a real
+  Windows PC after install (see packaging/STORE-LISTING.md).
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap5 rescap">
+
+  <Identity
+    Name="BadarDigital.RestoraPrint"
+    Publisher="CN=72D821D7-890E-4CCA-94D2-675D84F355AA"
+    Version="0.1.12.0"
+    ProcessorArchitecture="x64" />
+
   <Properties>
-    <DisplayName>Restora Print</DisplayName>
-    <PublisherDisplayName>Restora</PublisherDisplayName>
+    <DisplayName>Restora Agent</DisplayName>
+    <PublisherDisplayName>Badar Digital</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Restora Agent: prints Restora slips on the printers connected to a Windows PC</Description>
+    <Framework>false</Framework>
   </Properties>
-  <Resources><Resource Language="en-us" /></Resources>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
   </Dependencies>
+
   <Applications>
-    <Application Id="RestoraPrint" Executable="restora-pc-agent.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="Restora Print" Description="Print Restora receipts and kitchen tickets on your PC printers."
-                          BackgroundColor="transparent" Square44x44Logo="Assets\Square44x44Logo.png"
-                          Square150x150Logo="Assets\Square150x150Logo.png" />
+    <Application
+      Id="RestoraAgent"
+      Executable="restora-pc-agent.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Restora Agent"
+        Description="Print Restora receipts and kitchen tickets on your PC printers."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Assets\SplashScreen.png" />
+      </uap:VisualElements>
       <Extensions>
-        <desktop:Extension Category="windows.startupTask" Executable="restora-pc-agent.exe" EntryPoint="Windows.FullTrustApplication">
-          <desktop:StartupTask TaskId="RestoraPrintStartup" Enabled="false" DisplayName="Restora Print" />
-        </desktop:Extension>
+        <!-- Replaces the HKCU Run-key autostart in src/tray.rs, which is
+             disabled in Store builds (cargo feature "store"): under MSIX
+             that registry write is virtualised and would not start the
+             app at login. Startup is managed from Windows Settings >
+             Apps > Startup instead (tray menu item opens it). -->
+        <uap5:Extension Category="windows.startupTask">
+          <uap5:StartupTask
+            TaskId="RestoraPrintAgent"
+            Enabled="true"
+            DisplayName="Restora Agent" />
+        </uap5:Extension>
       </Extensions>
     </Application>
   </Applications>
-  <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
+
+  <Capabilities>
+    <!-- Full-trust Win32: tray app, RAW ESC/POS printing via the Windows
+         spooler, %APPDATA%\restora storage. Restricted capability: Store
+         certification will ask for justification (see
+         packaging/STORE-LISTING.md). -->
+    <rescap:Capability Name="runFullTrust" />
+    <!-- Local server on 127.0.0.1:17777 + private-network access.
+         Does NOT by itself guarantee loopback — verify on real Windows. -->
+    <Capability Name="privateNetworkClientServer" />
+    <Capability Name="internetClient" />
+  </Capabilities>
+
 </Package>
