@@ -50,12 +50,12 @@ pub fn open(url: &str) {
 
 /// The tray text for a status: short, and the same words as the setup page.
 fn summary(snapshot: &status::Snapshot) -> String {
-    format!("Restora Print: {}", snapshot.headline.title)
+    format!("Restora Agent: {}", snapshot.headline.title)
 }
 
 /// Shows the tray icon and handles it until Quit. Portable builds enable startup unless opted out.
 /// Store builds delegate startup to Windows Settings and the package manifest.
-/// A click on the icon opens the setup page; the right click shows the menu, whose first line is the current status.
+/// A click opens Restora; the right-click menu offers local diagnostics and agent status.
 pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
     #[cfg(not(feature = "store"))]
     if !autostart_enabled() && !config::folder().join("autostart.off").exists() {
@@ -72,7 +72,7 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
     let autostart = CheckMenuItem::new("Start with Windows", true, autostart_enabled(), None);
     let quit = MenuItem::new("Quit (stops printing)", true, None);
     let _ = menu.append_items(&[&state, &PredefinedMenuItem::separator(), &setup, &diagnostics, &autostart, &PredefinedMenuItem::separator(), &quit]);
-    let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_menu_on_left_click(false).with_tooltip("Restora Print");
+    let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_menu_on_left_click(false).with_tooltip("Restora Agent");
     if let Some(icon) = icon() {
         builder = builder.with_icon(icon);
     }
@@ -108,7 +108,7 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
         }
         let text = summary(&status::snapshot(&agent));
         if text != shown {
-            state.set_text(text.trim_start_matches("Restora Print: "));
+            state.set_text(text.trim_start_matches("Restora Agent: "));
             if let Ok(tray) = &tray {
                 let _ = tray.set_tooltip(Some(&text));
             }
