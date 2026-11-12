@@ -56,7 +56,7 @@ fn summary(snapshot: &status::Snapshot) -> String {
 /// Shows the tray icon and handles it until Quit. Portable builds enable startup unless opted out.
 /// Store builds delegate startup to Windows Settings and the package manifest.
 /// A click on the icon opens the setup page; the right click shows the menu, whose first line is the current status.
-pub fn run(setup_url: &str, agent: Arc<Agent>) {
+pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
     #[cfg(not(feature = "store"))]
     if !autostart_enabled() && !config::folder().join("autostart.off").exists() {
         set_autostart(true);
@@ -64,13 +64,14 @@ pub fn run(setup_url: &str, agent: Arc<Agent>) {
 
     let menu = Menu::new();
     let state = MenuItem::new("Starting…", false, None);
-    let setup = MenuItem::new("Open Restora Print", true, None);
+    let setup = MenuItem::new("Open Restora", true, None);
+    let diagnostics = MenuItem::new("Agent diagnostics", true, None);
     #[cfg(feature = "store")]
     let autostart = MenuItem::new("Manage startup in Windows Settings", true, None);
     #[cfg(not(feature = "store"))]
     let autostart = CheckMenuItem::new("Start with Windows", true, autostart_enabled(), None);
     let quit = MenuItem::new("Quit (stops printing)", true, None);
-    let _ = menu.append_items(&[&state, &PredefinedMenuItem::separator(), &setup, &autostart, &PredefinedMenuItem::separator(), &quit]);
+    let _ = menu.append_items(&[&state, &PredefinedMenuItem::separator(), &setup, &diagnostics, &autostart, &PredefinedMenuItem::separator(), &quit]);
     let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_menu_on_left_click(false).with_tooltip("Restora Print");
     if let Some(icon) = icon() {
         builder = builder.with_icon(icon);
@@ -88,7 +89,9 @@ pub fn run(setup_url: &str, agent: Arc<Agent>) {
         }
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if event.id == *setup.id() {
-                open(setup_url);
+                open(app_url);
+            } else if event.id == *diagnostics.id() {
+                open(diagnostics_url);
             } else if event.id == *autostart.id() {
                 #[cfg(feature = "store")]
                 open("ms-settings:startupapps");
@@ -100,7 +103,7 @@ pub fn run(setup_url: &str, agent: Arc<Agent>) {
         }
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                open(setup_url);
+                open(app_url);
             }
         }
         let text = summary(&status::snapshot(&agent));
