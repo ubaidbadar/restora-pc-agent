@@ -77,14 +77,16 @@ pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
         .with_state(local)
 }
 
-/// Refuses a request from any page that is not Restora, and any whose Host is not this address (DNS rebinding).
+/// Refuses non-Restora browser requests, DNS rebinding, and originless writes.
+/// An Origin header is required for POST: CORS alone never authorizes a request.
 async fn guard(State(local): State<Shared>, request: Request, next: Next) -> Response {
     let host_ok = request.headers().get(header::HOST).and_then(|h| h.to_str().ok()) == Some(ADDRESS);
-    let origin_ok = match request.headers().get(header::ORIGIN).and_then(|o| o.to_str().ok()) {
-        Some(origin) => local.origins.iter().any(|allowed| allowed == origin),
-        None => true,
-    };
-    if !host_ok || !origin_ok {
+    let origin = request.headers().get(header::ORIGIN).and_then(|o| o.to_str().ok());
+    let origin_ok = origin.is_none_or(|origin| local.origins.iter().any(|allowed| allowed == origin));
+    let writable = request.method() != axum::http::Method::GET
+        && request.method() != axum::http::Method::HEAD
+        && request.method() != axum::http::Method::OPTIONS;
+    if !host_ok || !origin_ok || (writable && origin.is_none()) {
         return (StatusCode::FORBIDDEN, Json(json!({ "message": "Not allowed" }))).into_response();
     }
     next.run(request).await
@@ -127,6 +129,22 @@ async fn list_printers() -> Response {
 
 async fn print(State(local): State<Shared>, Json(mut request): Json<PrintRequest>) -> Response {
     let agent = local.agent.clone();
+    if !agent.paired() {
+        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Connect this agent to Restora first." }))).into_response();
+    }
+    if request.order_key.trim().is_empty() || request.order_key.len() > 200
+        || request.printer.len() > 200 || !matches!(request.kind.as_str(), "kitchen" | "receipt") {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "message": "Invalid print job." }))).into_response();
+    }
+    let printers = agent.printers();
+    let allowed = printers.as_array().is_some_and(|rows| rows.iter().any(|printer| {
+        printer["systemName"] == request.printer
+            && printer["present"] == true
+            && printer["prints"].as_array().is_some_and(|kinds| kinds.iter().any(|kind| kind == &request.kind))
+    }));
+    if !allowed {
+        return (StatusCode::FORBIDDEN, Json(json!({ "message": "This printer is not configured for this slip in Restora." }))).into_response();
+    }
     if request.kind == "receipt" {
         request.header.logo_file = crate::logo::load(&agent.http, request.header.logo.as_deref()).await;
     }
