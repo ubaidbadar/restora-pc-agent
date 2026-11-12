@@ -37,8 +37,8 @@ permissions:
   contents: read
 
 env:
-  MSIX_VERSION: 0.1.12.0
-  PACKAGE_NAME: RestoraAgent-0.1.12.0.msix
+  MSIX_VERSION: 0.1.16.0
+  PACKAGE_NAME: RestoraAgent-0.1.16.0.msix
 
 jobs:
   msix:
@@ -112,6 +112,6 @@ jobs:
       - name: Upload the MSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RestoraAgent-0.1.12.0-msix
-          path: RestoraAgent-0.1.12.0.msix
+          name: RestoraAgent-0.1.16.0-msix
+          path: RestoraAgent-0.1.16.0.msix
           if-no-files-found: error
