@@ -81,13 +81,12 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
     if autostart_enabled() {
         // Upgrade old portable Run entries to silent startup without resetting
         // the staff's existing Start-with-Windows preference.
-        if let Ok(key) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(RUN_KEY) {
-            if key
+        if let Ok(key) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(RUN_KEY)
+            && key
                 .get_value::<String, _>(RUN_NAME)
                 .is_ok_and(|command| !command.contains("--background"))
-            {
-                set_autostart(true);
-            }
+        {
+            set_autostart(true);
         }
     }
 
