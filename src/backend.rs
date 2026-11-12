@@ -172,13 +172,13 @@ pub async fn run(agent: Arc<Agent>) {
                     }))
                     .send()
                     .await;
-                if let Ok(Ok(answer)) = result.map(|response| response.error_for_status()) {
-                    if let Ok(body) = answer.json::<serde_json::Value>().await {
-                        if let Err(error) = agent.set_printers(body["printers"].clone()) {
-                            tracing::warn!("{error}");
-                        } else {
-                            reported = Instant::now();
-                        }
+                if let Ok(Ok(answer)) = result.map(|response| response.error_for_status())
+                    && let Ok(body) = answer.json::<serde_json::Value>().await
+                {
+                    if let Err(error) = agent.set_printers(body["printers"].clone()) {
+                        tracing::warn!("{error}");
+                    } else {
+                        reported = Instant::now();
                     }
                 }
             } else {
@@ -221,25 +221,21 @@ pub async fn run(agent: Arc<Agent>) {
             .and_then(|header| header.to_str().ok())
             .unwrap_or("")
             .to_string();
-        if !revision.is_empty() && revision != printer_revision {
-            if let Ok(answer) = agent
+        if !revision.is_empty() && revision != printer_revision
+            && let Ok(answer) = agent
                 .http
                 .get(format!("{url}/printers"))
                 .bearer_auth(&config.token)
                 .send()
                 .await
-            {
-                if let Ok(answer) = answer.error_for_status() {
-                    if let Ok(body) = answer.json::<serde_json::Value>().await {
-                        if body["printers"].is_array() {
-                            if let Err(error) = agent.set_printers(body["printers"].clone()) {
-                                tracing::warn!("{error}");
-                            } else {
-                                printer_revision = revision;
-                            }
-                        }
-                    }
-                }
+            && let Ok(answer) = answer.error_for_status()
+            && let Ok(body) = answer.json::<serde_json::Value>().await
+            && body["printers"].is_array()
+        {
+            if let Err(error) = agent.set_printers(body["printers"].clone()) {
+                tracing::warn!("{error}");
+            } else {
+                printer_revision = revision;
             }
         }
         let Ok(jobs) = response.json::<Vec<Job>>().await else {
