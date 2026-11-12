@@ -27,10 +27,16 @@ impl Escpos {
         let left = ascii(left);
         let right = ascii(right);
         let width = self.width / self.scale;
+        if width == 0 {
+            self.bytes.push(b'\n');
+            return;
+        }
+        // Keep the end of long totals, including the monetary digits.
+        let right = &right[right.len().saturating_sub(width)..];
         let room = width.saturating_sub(right.len() + 1);
-        self.bytes.extend(&left[..left.len().min(room)]);
-        let gap = width.saturating_sub(left.len().min(room) + right.len());
-        self.bytes.extend(std::iter::repeat_n(b' ', gap));
+        let left = &left[..left.len().min(room)];
+        self.bytes.extend(left);
+        self.bytes.extend(std::iter::repeat_n(b' ', width - left.len() - right.len()));
         self.bytes.extend(right);
         self.bytes.push(b'\n');
     }
@@ -155,6 +161,24 @@ mod tests {
         let mut printer = Escpos::new(32);
         printer.pair("Total", "Rs 2,900");
         assert!(printer.bytes.ends_with(b"Total                   Rs 2,900\n"));
+    }
+
+    #[test]
+    fn long_right_hand_values_never_overflow_58_or_80mm_paper() {
+        for width in [32, 48] {
+            let mut printer = Escpos::new(width);
+            let amount = "Total PKR 12345678901234567890123456789012345678901234567890";
+            printer.pair("Grand total including everything", amount);
+            let printed = &printer.bytes[2..printer.bytes.len() - 1];
+            assert_eq!(printed.len(), width);
+            assert!(printed.ends_with(&amount.as_bytes()[amount.len() - width..]));
+        }
+
+        let mut printer = Escpos::new(32);
+        printer.size(2);
+        let start = printer.bytes.len();
+        printer.pair("Grand total", "Rs 999999999999999999999");
+        assert_eq!(printer.bytes.len() - start, 17);
     }
 
     #[test]
