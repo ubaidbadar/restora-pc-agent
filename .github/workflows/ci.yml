@@ -16,7 +16,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo build --release
+      - run: cargo test --locked
+      - run: cargo build --release --locked
       # The exe of every push and pull request, under the run's Artifacts (kept 30 days). Releases are made by tagging.
       - uses: actions/upload-artifact@v4
         with:
