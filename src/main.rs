@@ -31,6 +31,38 @@ fn start_logging() {
 }
 
 #[cfg(windows)]
+fn embedded_parent(args: &[String]) -> Result<Option<u32>, &'static str> {
+    if !args.iter().any(|argument| argument == "--embedded") {
+        return Ok(None);
+    }
+    let parent = args
+        .windows(2)
+        .find(|pair| pair[0] == "--parent-pid")
+        .and_then(|pair| pair[1].parse::<u32>().ok())
+        .filter(|pid| *pid > 0)
+        .ok_or("Embedded printing requires a valid --parent-pid")?;
+    Ok(Some(parent))
+}
+
+/// Stop the silent engine when its owning Electron process exits, including after a crash.
+#[cfg(windows)]
+fn exit_with_parent(parent_pid: u32) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        INFINITE, OpenProcess, PROCESS_ACCESS_RIGHTS, WaitForSingleObject,
+    };
+    std::thread::spawn(move || unsafe {
+        // PROCESS_SYNCHRONIZE: wait for the real parent handle, not a reusable PID.
+        let Ok(handle) = OpenProcess(PROCESS_ACCESS_RIGHTS(0x0010_0000), false, parent_pid) else {
+            std::process::exit(0);
+        };
+        WaitForSingleObject(handle, INFINITE);
+        let _ = CloseHandle(handle);
+        std::process::exit(0);
+    });
+}
+
+#[cfg(windows)]
 fn launched_at_startup() -> bool {
     if std::env::args().any(|argument| argument == "--background") {
         return true;
@@ -48,9 +80,21 @@ fn launched_at_startup() -> bool {
 }
 
 fn main() {
+    #[cfg(windows)]
+    let embedded_pid = match embedded_parent(&std::env::args().collect::<Vec<_>>()) {
+        Ok(pid) => pid,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+    };
     start_logging();
     #[cfg(windows)]
-    let interactive = !launched_at_startup();
+    if let Some(parent) = embedded_pid {
+        exit_with_parent(parent);
+    }
+    #[cfg(windows)]
+    let interactive = embedded_pid.is_none() && !launched_at_startup();
     // The Restora pages allowed to call the agent; RESTORA_ORIGINS (comma separated) replaces them.
     let origins = std::env::var("RESTORA_ORIGINS")
         .unwrap_or_else(|_| "https://app.restora.live,https://dev-app.restora.live,https://restora-live.web.app,https://restora-live.firebaseapp.com,https://restora-live-dev.web.app,https://restora-live-dev.firebaseapp.com,http://localhost:3000".to_string())
@@ -101,12 +145,50 @@ fn main() {
     }
 
     #[cfg(windows)]
-    tray::run(
-        &format!("http://{}", local::ADDRESS),
-        &local::app_url(),
-        agent_for_tray,
-    );
+    if embedded_pid.is_some() {
+        // Electron owns this process: no tray, browser window, Run-key autostart or
+        // standalone installer. The parent-handle watcher stops us on owner exit.
+        runtime.block_on(std::future::pending::<()>());
+    } else {
+        tray::run(
+            &format!("http://{}", local::ADDRESS),
+            &local::app_url(),
+            agent_for_tray,
+        );
+    }
     // Elsewhere (development) the agent runs until it is stopped.
     #[cfg(not(windows))]
     runtime.block_on(tokio::signal::ctrl_c()).ok();
+}
+
+#[cfg(all(test, windows))]
+mod embedded_tests {
+    use super::embedded_parent;
+
+    #[test]
+    fn embedded_mode_requires_parent_and_standalone_is_unchanged() {
+        let args = |parts: &[&str]| {
+            parts
+                .iter()
+                .map(|part| part.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(embedded_parent(&args(&["engine"])), Ok(None));
+        assert_eq!(
+            embedded_parent(&args(&["engine", "--background"])),
+            Ok(None)
+        );
+        assert_eq!(
+            embedded_parent(&args(&["engine", "--embedded"])),
+            Err("Embedded printing requires a valid --parent-pid")
+        );
+        assert_eq!(
+            embedded_parent(&args(&["engine", "--embedded", "--parent-pid", "0"])),
+            Err("Embedded printing requires a valid --parent-pid")
+        );
+        assert_eq!(
+            embedded_parent(&args(&["engine", "--embedded", "--parent-pid", "123"])),
+            Ok(Some(123))
+        );
+    }
 }
