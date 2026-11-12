@@ -19,7 +19,7 @@ cargo test                                     # slip tests
 cargo run                                      # runs on Linux too; printing only works on Windows
 cargo build --release --target x86_64-pc-windows-msvc
 ```
-`test/index.html` calls the local server from a browser page. Every push to main publishes a new release by itself (`.github/workflows/release.yml`): the next patch version, or add `#minor` / `#major` to the commit message to raise that part. With the R2 secrets set, the exe is also uploaded to the Cloudflare bucket (see the top of the workflow).
+`test/index.html` calls the local server from a browser page. Public portable releases are **manual** through `.github/workflows/release.yml` until the integrated agent has passed Windows and printer release checks. A maintainer triggers the release workflow after verification; the next patch version is selected by default, or use `#minor` / `#major` in the latest commit message. With the R2 secrets set, the exe is also uploaded to the Cloudflare bucket (see the top of the workflow).
 
 ## Code signing policy
 Release builds are made by GitHub Actions from this repository (`.github/workflows/release.yml`), so a signature confirms that the exe is an automated build of the source code here.
