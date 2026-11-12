@@ -29,7 +29,6 @@ pub fn printer_settings_url() -> String {
     format!("{}/settings/printers", app_url())
 }
 
-
 /// Opens the setup page in the browser, so staff can type the pairing code. Elsewhere (development) it only logs where it is.
 pub fn open_setup() {
     let url = format!("http://{ADDRESS}");
@@ -75,7 +74,9 @@ struct PairRequest {
 pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
     origins.push(format!("http://{ADDRESS}"));
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list(origins.iter().filter_map(|o| HeaderValue::from_str(o).ok())))
+        .allow_origin(AllowOrigin::list(
+            origins.iter().filter_map(|o| HeaderValue::from_str(o).ok()),
+        ))
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
         .allow_headers([header::CONTENT_TYPE])
         // Chrome asks first whether a public site may reach a private address; this says yes (only for the origins above).
@@ -97,14 +98,26 @@ pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
 /// Refuses non-Restora browser requests, DNS rebinding, and originless writes.
 /// An Origin header is required for POST: CORS alone never authorizes a request.
 async fn guard(State(local): State<Shared>, request: Request, next: Next) -> Response {
-    let host_ok = request.headers().get(header::HOST).and_then(|h| h.to_str().ok()) == Some(ADDRESS);
-    let origin = request.headers().get(header::ORIGIN).and_then(|o| o.to_str().ok());
-    let origin_ok = origin.is_none_or(|origin| local.origins.iter().any(|allowed| allowed == origin));
+    let host_ok = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        == Some(ADDRESS);
+    let origin = request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|o| o.to_str().ok());
+    let origin_ok =
+        origin.is_none_or(|origin| local.origins.iter().any(|allowed| allowed == origin));
     let writable = request.method() != axum::http::Method::GET
         && request.method() != axum::http::Method::HEAD
         && request.method() != axum::http::Method::OPTIONS;
     if !host_ok || !origin_ok || (writable && origin.is_none()) {
-        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Not allowed" }))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "message": "Not allowed" })),
+        )
+            .into_response();
     }
     next.run(request).await
 }
@@ -117,28 +130,50 @@ async fn setup_page() -> Html<String> {
 }
 
 async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> Response {
-    match local.agent.pair(request.code.trim(), request.api.as_deref()).await {
+    match local
+        .agent
+        .pair(request.code.trim(), request.api.as_deref())
+        .await
+    {
         Ok(()) => Json(json!({ "paired": true })).into_response(),
-        Err(message) => (StatusCode::BAD_REQUEST, Json(json!({ "message": message }))).into_response(),
+        Err(message) => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "message": message }))).into_response()
+        }
     }
 }
 
 /// Everything the setup page shows: connection, printers and the recent slips (see status.rs).
 async fn status(State(local): State<Shared>) -> Json<crate::status::Snapshot> {
     let agent = local.agent.clone();
-    Json(tokio::task::spawn_blocking(move || crate::status::snapshot(&agent)).await.unwrap())
+    Json(
+        tokio::task::spawn_blocking(move || crate::status::snapshot(&agent))
+            .await
+            .unwrap(),
+    )
 }
 
 /// The printers as staff set them in Restora (name, what each prints, paper), for the web app when it has no internet.
 async fn config(State(local): State<Shared>) -> Json<serde_json::Value> {
-    let branch = local.agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
-    Json(json!({ "paired": local.agent.paired(), "branchId": branch, "printers": local.agent.printers() }))
+    let branch = local
+        .agent
+        .config
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|config| config.branch_id.clone());
+    Json(
+        json!({ "paired": local.agent.paired(), "branchId": branch, "printers": local.agent.printers() }),
+    )
 }
 
 async fn list_printers() -> Response {
     match printers::list() {
         Ok(names) => Json(json!(names)).into_response(),
-        Err(message) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "message": message }))).into_response(),
+        Err(message) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "message": message })),
+        )
+            .into_response(),
     }
 }
 
@@ -149,38 +184,76 @@ fn branch_allowed(paired_branch: Option<&str>, selected_branch: Option<&str>) ->
 async fn print(State(local): State<Shared>, Json(mut request): Json<PrintRequest>) -> Response {
     let agent = local.agent.clone();
     if !agent.paired() {
-        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Connect this agent to Restora first." }))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "message": "Connect this agent to Restora first." })),
+        )
+            .into_response();
     }
-    let paired_branch = agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
+    let paired_branch = agent
+        .config
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|config| config.branch_id.clone());
     if !branch_allowed(paired_branch.as_deref(), request.branch_id.as_deref()) {
-        return (StatusCode::FORBIDDEN, Json(json!({ "message": "This PC belongs to a different Restora branch." }))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "message": "This PC belongs to a different Restora branch." })),
+        )
+            .into_response();
     }
-    if request.order_key.trim().is_empty() || request.order_key.len() > 200
-        || request.printer.len() > 200 || !matches!(request.kind.as_str(), "kitchen" | "receipt") {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "message": "Invalid print job." }))).into_response();
+    if request.order_key.trim().is_empty()
+        || request.order_key.len() > 200
+        || request.printer.len() > 200
+        || !matches!(request.kind.as_str(), "kitchen" | "receipt")
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "message": "Invalid print job." })),
+        )
+            .into_response();
     }
     let printers = agent.printers();
-    let allowed = printers.as_array().is_some_and(|rows| rows.iter().any(|printer| {
-        printer["systemName"] == request.printer
-            && printer["present"] == true
-            && printer["prints"].as_array().is_some_and(|kinds| kinds.iter().any(|kind| kind == &request.kind))
-    }));
+    let allowed = printers.as_array().is_some_and(|rows| {
+        rows.iter().any(|printer| {
+            printer["systemName"] == request.printer
+                && printer["present"] == true
+                && printer["prints"]
+                    .as_array()
+                    .is_some_and(|kinds| kinds.iter().any(|kind| kind == &request.kind))
+        })
+    });
     if !allowed {
-        return (StatusCode::FORBIDDEN, Json(json!({ "message": "This printer is not configured for this slip in Restora." }))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "message": "This printer is not configured for this slip in Restora." })),
+        )
+            .into_response();
     }
     if request.kind == "receipt" {
         request.header.logo_file = crate::logo::load(request.header.logo.as_deref()).await;
     }
     // The blocking Windows calls stay off the async threads.
     let result = tokio::task::spawn_blocking(move || {
-        let slip = Slip { printer: &request.printer, kind: &request.kind, order_key: &request.order_key, width: request.width.unwrap_or(48).clamp(24, 64), copies: request.copies.unwrap_or(1), order: &request.order, header: &request.header };
+        let slip = Slip {
+            printer: &request.printer,
+            kind: &request.kind,
+            order_key: &request.order_key,
+            width: request.width.unwrap_or(48).clamp(24, 64),
+            copies: request.copies.unwrap_or(1),
+            order: &request.order,
+            header: &request.header,
+        };
         agent.print(&slip)
     })
     .await
     .unwrap_or_else(|e| Err(e.to_string()));
     match result {
         Ok(printed) => Json(json!({ "printed": printed, "duplicate": !printed })).into_response(),
-        Err(message) => (StatusCode::BAD_GATEWAY, Json(json!({ "message": message }))).into_response(),
+        Err(message) => {
+            (StatusCode::BAD_GATEWAY, Json(json!({ "message": message }))).into_response()
+        }
     }
 }
 
