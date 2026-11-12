@@ -39,7 +39,7 @@ fn main() {
     let listener = match runtime.block_on(tokio::net::TcpListener::bind(local::ADDRESS)) {
         Ok(listener) => listener,
         Err(err) => {
-            // Most likely the agent is already running (opened again from the desktop): show its setup page instead.
+            // Most likely the agent is already running: open Restora instead of another agent window.
             tracing::error!("cannot listen on {}: {err}", local::ADDRESS);
             #[cfg(windows)]
             tray::open(&local::printer_settings_url());
