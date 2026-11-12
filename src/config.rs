@@ -27,7 +27,8 @@ struct StoredConfig {
 
 /// %APPDATA%\restora on Windows (~/.config/restora elsewhere).
 pub fn folder() -> PathBuf {
-    let base = std::env::var_os("APPDATA").map(PathBuf::from)
+    let base = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
     let folder = base.unwrap_or_else(|| PathBuf::from(".")).join("restora");
     let _ = std::fs::create_dir_all(&folder);
@@ -35,15 +36,16 @@ pub fn folder() -> PathBuf {
 }
 
 pub fn load() -> Option<Config> {
-    let stored: StoredConfig = serde_json::from_slice(
-        &std::fs::read(folder().join("agent.json")).ok()?,
-    ).ok()?;
+    let stored: StoredConfig =
+        serde_json::from_slice(&std::fs::read(folder().join("agent.json")).ok()?).ok()?;
     let legacy = stored.token.is_some();
     let token = match (stored.protected_token, stored.token) {
         (Some(encoded), _) => {
             #[cfg(windows)]
             {
-                let ciphertext = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+                let ciphertext = base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .ok()?;
                 String::from_utf8(dpapi::unprotect(&ciphertext).ok()?).ok()?
             }
             #[cfg(not(windows))]
@@ -55,7 +57,11 @@ pub fn load() -> Option<Config> {
         (None, Some(plaintext)) => plaintext,
         (None, None) => return None,
     };
-    let config = Config { api: stored.api, token, branch_id: stored.branch_id };
+    let config = Config {
+        api: stored.api,
+        token,
+        branch_id: stored.branch_id,
+    };
     #[cfg(windows)]
     if legacy {
         // Automatically migrate the old plaintext file on first successful read.
@@ -72,18 +78,25 @@ pub fn load() -> Option<Config> {
 pub fn save(config: &Config) -> std::io::Result<()> {
     #[cfg(windows)]
     let stored = StoredConfig {
-        api: config.api.clone(), branch_id: config.branch_id.clone(),
+        api: config.api.clone(),
+        branch_id: config.branch_id.clone(),
         token: None,
-        protected_token: Some(base64::engine::general_purpose::STANDARD.encode(
-            dpapi::protect(config.token.as_bytes())?,
-        )),
+        protected_token: Some(
+            base64::engine::general_purpose::STANDARD
+                .encode(dpapi::protect(config.token.as_bytes())?),
+        ),
     };
     #[cfg(not(windows))]
     let stored = StoredConfig {
-        api: config.api.clone(), branch_id: config.branch_id.clone(),
-        token: Some(config.token.clone()), protected_token: None,
+        api: config.api.clone(),
+        branch_id: config.branch_id.clone(),
+        token: Some(config.token.clone()),
+        protected_token: None,
     };
-    std::fs::write(folder().join("agent.json"), serde_json::to_vec_pretty(&stored)?)
+    std::fs::write(
+        folder().join("agent.json"),
+        serde_json::to_vec_pretty(&stored)?,
+    )
 }
 
 pub fn clear() {
@@ -103,14 +116,22 @@ mod dpapi {
     #[link(name = "Crypt32")]
     unsafe extern "system" {
         fn CryptProtectData(
-            input: *const DataBlob, description: *const u16,
-            entropy: *const DataBlob, reserved: *const c_void,
-            prompt: *const c_void, flags: u32, output: *mut DataBlob,
+            input: *const DataBlob,
+            description: *const u16,
+            entropy: *const DataBlob,
+            reserved: *const c_void,
+            prompt: *const c_void,
+            flags: u32,
+            output: *mut DataBlob,
         ) -> i32;
         fn CryptUnprotectData(
-            input: *const DataBlob, description: *mut *mut u16,
-            entropy: *const DataBlob, reserved: *const c_void,
-            prompt: *const c_void, flags: u32, output: *mut DataBlob,
+            input: *const DataBlob,
+            description: *mut *mut u16,
+            entropy: *const DataBlob,
+            reserved: *const c_void,
+            prompt: *const c_void,
+            flags: u32,
+            output: *mut DataBlob,
         ) -> i32;
     }
 
@@ -123,27 +144,53 @@ mod dpapi {
 
     fn transform(input: &[u8], encrypt: bool) -> io::Result<Vec<u8>> {
         if input.len() > u32::MAX as usize {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "token is too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "token is too large",
+            ));
         }
         let mut data = input.to_vec();
-        let blob = DataBlob { cb_data: data.len() as u32, pb_data: data.as_mut_ptr() };
-        let mut output = DataBlob { cb_data: 0, pb_data: ptr::null_mut() };
+        let blob = DataBlob {
+            cb_data: data.len() as u32,
+            pb_data: data.as_mut_ptr(),
+        };
+        let mut output = DataBlob {
+            cb_data: 0,
+            pb_data: ptr::null_mut(),
+        };
         // DPAPI encrypts for the current Windows user, without exporting a key.
         // The returned allocation is owned by LocalFree (Windows API contract).
         let ok = unsafe {
             if encrypt {
-                CryptProtectData(&blob, ptr::null(), ptr::null(), ptr::null(),
-                    ptr::null(), UI_FORBIDDEN, &mut output)
+                CryptProtectData(
+                    &blob,
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null(),
+                    UI_FORBIDDEN,
+                    &mut output,
+                )
             } else {
-                CryptUnprotectData(&blob, ptr::null_mut(), ptr::null(), ptr::null(),
-                    ptr::null(), UI_FORBIDDEN, &mut output)
+                CryptUnprotectData(
+                    &blob,
+                    ptr::null_mut(),
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null(),
+                    UI_FORBIDDEN,
+                    &mut output,
+                )
             }
         };
         if ok == 0 {
             return Err(io::Error::last_os_error());
         }
-        let result = unsafe { std::slice::from_raw_parts(output.pb_data, output.cb_data as usize) }.to_vec();
-        unsafe { LocalFree(output.pb_data.cast()); }
+        let result =
+            unsafe { std::slice::from_raw_parts(output.pb_data, output.cb_data as usize) }.to_vec();
+        unsafe {
+            LocalFree(output.pb_data.cast());
+        }
         Ok(result)
     }
 
