@@ -68,10 +68,18 @@ pub struct Slip<'a> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PairedAgent {
+    branch_id: String,
+}
+
+#[derive(Deserialize)]
 struct Paired {
     token: String,
     #[serde(default)]
     printers: serde_json::Value,
+    #[serde(default)]
+    agent: Option<PairedAgent>,
 }
 
 impl Agent {
@@ -191,7 +199,7 @@ impl Agent {
             return Err(message.unwrap_or_else(|| "Pairing failed".to_string()));
         }
         let paired: Paired = response.json().await.map_err(|e| e.to_string())?;
-        let config = Config { api, token: paired.token };
+        let config = Config { api, token: paired.token, branch_id: paired.agent.map(|agent| agent.branch_id) };
         config::save(&config).map_err(|e| format!("Cannot save the key: {e}"))?;
         *self.config.lock().unwrap() = Some(config);
         self.set_printers(paired.printers);
