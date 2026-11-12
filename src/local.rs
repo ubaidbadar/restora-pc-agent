@@ -15,6 +15,20 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub const ADDRESS: &str = "127.0.0.1:17777";
 
+/// The customer-facing web app. Overrides are for local development only.
+pub fn app_url() -> String {
+    std::env::var("RESTORA_APP")
+        .ok()
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://localhost:"))
+        .unwrap_or_else(|| "https://app.restora.live".to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+pub fn printer_settings_url() -> String {
+    format!("{}/settings/printers", app_url())
+}
+
 /// Opens the setup page in the browser, so staff can type the pairing code. Elsewhere (development) it only logs where it is.
 pub fn open_setup() {
     let url = format!("http://{ADDRESS}");
@@ -94,10 +108,7 @@ async fn guard(State(local): State<Shared>, request: Request, next: Next) -> Res
 /// the agent itself, so no browser permission is needed. `RESTORA_APP` replaces the web app's address.
 async fn setup_page() -> Html<String> {
     let page = include_str!("setup.html");
-    Html(match std::env::var("RESTORA_APP") {
-        Ok(app) => page.replace("https://app.restora.live", app.trim_end_matches('/')),
-        Err(_) => page.to_string(),
-    })
+    Html(page.replace("https://app.restora.live", &app_url()))
 }
 
 async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> Response {
