@@ -26,7 +26,7 @@ fn set_autostart(on: bool) {
     let Ok((key, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY) else { return };
     if on {
         if let Ok(exe) = std::env::current_exe() {
-            let _ = key.set_value(RUN_NAME, &format!("\"{}\"", exe.display()));
+            let _ = key.set_value(RUN_NAME, &format!("\"{}\" --background", exe.display()));
         }
         let _ = std::fs::remove_file(config::folder().join("autostart.off"));
     } else {
@@ -50,28 +50,39 @@ pub fn open(url: &str) {
 
 /// The tray text for a status: short, and the same words as the setup page.
 fn summary(snapshot: &status::Snapshot) -> String {
-    format!("Restora Print: {}", snapshot.headline.title)
+    format!("Restora Agent: {}", snapshot.headline.title)
 }
 
 /// Shows the tray icon and handles it until Quit. Portable builds enable startup unless opted out.
 /// Store builds delegate startup to Windows Settings and the package manifest.
-/// A click on the icon opens the setup page; the right click shows the menu, whose first line is the current status.
-pub fn run(setup_url: &str, agent: Arc<Agent>) {
+/// A click opens Restora; the right-click menu offers local diagnostics and agent status.
+pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
     #[cfg(not(feature = "store"))]
     if !autostart_enabled() && !config::folder().join("autostart.off").exists() {
         set_autostart(true);
     }
+    #[cfg(not(feature = "store"))]
+    if autostart_enabled() {
+        // Upgrade old portable Run entries to silent startup without resetting
+        // the staff's existing Start-with-Windows preference.
+        if let Ok(key) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(RUN_KEY) {
+            if key.get_value::<String, _>(RUN_NAME).is_ok_and(|command| !command.contains("--background")) {
+                set_autostart(true);
+            }
+        }
+    }
 
     let menu = Menu::new();
     let state = MenuItem::new("Starting…", false, None);
-    let setup = MenuItem::new("Open Restora Print", true, None);
+    let setup = MenuItem::new("Open Restora", true, None);
+    let diagnostics = MenuItem::new("Agent diagnostics", true, None);
     #[cfg(feature = "store")]
     let autostart = MenuItem::new("Manage startup in Windows Settings", true, None);
     #[cfg(not(feature = "store"))]
     let autostart = CheckMenuItem::new("Start with Windows", true, autostart_enabled(), None);
     let quit = MenuItem::new("Quit (stops printing)", true, None);
-    let _ = menu.append_items(&[&state, &PredefinedMenuItem::separator(), &setup, &autostart, &PredefinedMenuItem::separator(), &quit]);
-    let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_menu_on_left_click(false).with_tooltip("Restora Print");
+    let _ = menu.append_items(&[&state, &PredefinedMenuItem::separator(), &setup, &diagnostics, &autostart, &PredefinedMenuItem::separator(), &quit]);
+    let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_menu_on_left_click(false).with_tooltip("Restora Agent");
     if let Some(icon) = icon() {
         builder = builder.with_icon(icon);
     }
@@ -88,7 +99,9 @@ pub fn run(setup_url: &str, agent: Arc<Agent>) {
         }
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if event.id == *setup.id() {
-                open(setup_url);
+                open(app_url);
+            } else if event.id == *diagnostics.id() {
+                open(diagnostics_url);
             } else if event.id == *autostart.id() {
                 #[cfg(feature = "store")]
                 open("ms-settings:startupapps");
@@ -100,12 +113,12 @@ pub fn run(setup_url: &str, agent: Arc<Agent>) {
         }
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                open(setup_url);
+                open(app_url);
             }
         }
         let text = summary(&status::snapshot(&agent));
         if text != shown {
-            state.set_text(text.trim_start_matches("Restora Print: "));
+            state.set_text(text.trim_start_matches("Restora Agent: "));
             if let Ok(tray) = &tray {
                 let _ = tray.set_tooltip(Some(&text));
             }
