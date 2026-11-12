@@ -49,7 +49,7 @@ fn embedded_parent(args: &[String]) -> Result<Option<u32>, &'static str> {
 fn exit_with_parent(parent_pid: u32) {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{
-        OpenProcess, PROCESS_ACCESS_RIGHTS, WaitForSingleObject, INFINITE,
+        INFINITE, OpenProcess, PROCESS_ACCESS_RIGHTS, WaitForSingleObject,
     };
     std::thread::spawn(move || unsafe {
         // PROCESS_SYNCHRONIZE: wait for the real parent handle, not a reusable PID.
@@ -167,11 +167,28 @@ mod embedded_tests {
 
     #[test]
     fn embedded_mode_requires_parent_and_standalone_is_unchanged() {
-        let args = |parts: &[&str]| parts.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+        let args = |parts: &[&str]| {
+            parts
+                .iter()
+                .map(|part| part.to_string())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(embedded_parent(&args(&["engine"])), Ok(None));
-        assert_eq!(embedded_parent(&args(&["engine", "--background"])), Ok(None));
-        assert_eq!(embedded_parent(&args(&["engine", "--embedded"])), Err("Embedded printing requires a valid --parent-pid"));
-        assert_eq!(embedded_parent(&args(&["engine", "--embedded", "--parent-pid", "0"])), Err("Embedded printing requires a valid --parent-pid"));
-        assert_eq!(embedded_parent(&args(&["engine", "--embedded", "--parent-pid", "123"])), Ok(Some(123)));
+        assert_eq!(
+            embedded_parent(&args(&["engine", "--background"])),
+            Ok(None)
+        );
+        assert_eq!(
+            embedded_parent(&args(&["engine", "--embedded"])),
+            Err("Embedded printing requires a valid --parent-pid")
+        );
+        assert_eq!(
+            embedded_parent(&args(&["engine", "--embedded", "--parent-pid", "0"])),
+            Err("Embedded printing requires a valid --parent-pid")
+        );
+        assert_eq!(
+            embedded_parent(&args(&["engine", "--embedded", "--parent-pid", "123"])),
+            Ok(Some(123))
+        );
     }
 }
