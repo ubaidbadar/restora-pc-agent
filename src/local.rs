@@ -39,6 +39,8 @@ struct PrintRequest {
     kind: String,
     /// The order's clientId when it has one, else its _id: what tells a slip printed offline from the synced order's.
     order_key: String,
+    /// The web app's selected restaurant branch; must match the paired agent.
+    branch_id: Option<String>,
     /// Characters per line: 48 (80 mm, default) or 32 (58 mm).
     width: Option<usize>,
     copies: Option<u32>,
@@ -117,7 +119,8 @@ async fn status(State(local): State<Shared>) -> Json<crate::status::Snapshot> {
 
 /// The printers as staff set them in Restora (name, what each prints, paper), for the web app when it has no internet.
 async fn config(State(local): State<Shared>) -> Json<serde_json::Value> {
-    Json(json!({ "paired": local.agent.paired(), "printers": local.agent.printers() }))
+    let branch = local.agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
+    Json(json!({ "paired": local.agent.paired(), "branchId": branch, "printers": local.agent.printers() }))
 }
 
 async fn list_printers() -> Response {
@@ -127,10 +130,18 @@ async fn list_printers() -> Response {
     }
 }
 
+fn branch_allowed(paired_branch: Option<&str>, selected_branch: Option<&str>) -> bool {
+    paired_branch.is_none_or(|branch| selected_branch == Some(branch))
+}
+
 async fn print(State(local): State<Shared>, Json(mut request): Json<PrintRequest>) -> Response {
     let agent = local.agent.clone();
     if !agent.paired() {
         return (StatusCode::FORBIDDEN, Json(json!({ "message": "Connect this agent to Restora first." }))).into_response();
+    }
+    let paired_branch = agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
+    if !branch_allowed(paired_branch.as_deref(), request.branch_id.as_deref()) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "message": "This PC belongs to a different Restora branch." }))).into_response();
     }
     if request.order_key.trim().is_empty() || request.order_key.len() > 200
         || request.printer.len() > 200 || !matches!(request.kind.as_str(), "kitchen" | "receipt") {
