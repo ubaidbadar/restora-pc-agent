@@ -41,6 +41,9 @@ fn main() {
         Err(err) => {
             // Most likely the agent is already running (opened again from the desktop): show its setup page instead.
             tracing::error!("cannot listen on {}: {err}", local::ADDRESS);
+            #[cfg(windows)]
+            tray::open(&local::printer_settings_url());
+            #[cfg(not(windows))]
             local::open_setup();
             return;
         }
@@ -56,13 +59,13 @@ fn main() {
         // First-run pairing happens in the authenticated Restora web app.
         // The local setup page remains available from the tray as a manual fallback.
         #[cfg(windows)]
-        tray::open("https://app.restora.live/settings/printers");
+        tray::open(&local::printer_settings_url());
         #[cfg(not(windows))]
         local::open_setup();
     }
 
     #[cfg(windows)]
-    tray::run(&format!("http://{}", local::ADDRESS), agent_for_tray);
+    tray::run(&format!("http://{}", local::ADDRESS), &local::app_url(), agent_for_tray);
     // Elsewhere (development) the agent runs until it is stopped.
     #[cfg(not(windows))]
     runtime.block_on(tokio::signal::ctrl_c()).ok();
