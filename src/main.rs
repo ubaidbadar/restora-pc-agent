@@ -17,9 +17,15 @@ use std::sync::{Arc, Mutex};
 
 /// Windows has no console to log to, so the log is a file next to the settings.
 fn start_logging() {
-    let file = std::fs::OpenOptions::new().create(true).append(true).open(config::folder().join("agent.log"));
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(config::folder().join("agent.log"));
     match file {
-        Ok(file) if cfg!(windows) => tracing_subscriber::fmt().with_ansi(false).with_writer(Mutex::new(file)).init(),
+        Ok(file) if cfg!(windows) => tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(Mutex::new(file))
+            .init(),
         _ => tracing_subscriber::fmt::init(),
     }
 }
@@ -74,7 +80,11 @@ fn main() {
     let paired = agent.paired();
     #[cfg(windows)]
     let agent_for_tray = agent.clone();
-    runtime.spawn(async move { axum::serve(listener, local::router(agent, origins)).await.unwrap() });
+    runtime.spawn(async move {
+        axum::serve(listener, local::router(agent, origins))
+            .await
+            .unwrap()
+    });
     // Interactive launch opens Restora. Windows auto-start stays in the tray
     // without opening a browser every time the employee signs in.
     #[cfg(windows)]
@@ -91,7 +101,11 @@ fn main() {
     }
 
     #[cfg(windows)]
-    tray::run(&format!("http://{}", local::ADDRESS), &local::app_url(), agent_for_tray);
+    tray::run(
+        &format!("http://{}", local::ADDRESS),
+        &local::app_url(),
+        agent_for_tray,
+    );
     // Elsewhere (development) the agent runs until it is stopped.
     #[cfg(not(windows))]
     runtime.block_on(tokio::signal::ctrl_c()).ok();
