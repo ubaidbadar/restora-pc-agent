@@ -26,7 +26,7 @@ fn set_autostart(on: bool) {
     let Ok((key, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY) else { return };
     if on {
         if let Ok(exe) = std::env::current_exe() {
-            let _ = key.set_value(RUN_NAME, &format!("\"{}\"", exe.display()));
+            let _ = key.set_value(RUN_NAME, &format!("\"{}\" --background", exe.display()));
         }
         let _ = std::fs::remove_file(config::folder().join("autostart.off"));
     } else {
@@ -60,6 +60,16 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
     #[cfg(not(feature = "store"))]
     if !autostart_enabled() && !config::folder().join("autostart.off").exists() {
         set_autostart(true);
+    }
+    #[cfg(not(feature = "store"))]
+    if autostart_enabled() {
+        // Upgrade old portable Run entries to silent startup without resetting
+        // the staff's existing Start-with-Windows preference.
+        if let Ok(key) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(RUN_KEY) {
+            if key.get_value::<String, _>(RUN_NAME).is_ok_and(|command| !command.contains("--background")) {
+                set_autostart(true);
+            }
+        }
     }
 
     let menu = Menu::new();
