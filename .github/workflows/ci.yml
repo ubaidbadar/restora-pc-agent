@@ -42,6 +42,30 @@ jobs:
           } finally {
             Stop-Process -Id $agent.Id -Force -ErrorAction SilentlyContinue
           }
+      - name: Smoke test parent-bound embedded engine (no standalone installer)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $before = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).'Restora Agent'
+          $engine = Start-Process -FilePath './target/release/restora-pc-agent.exe' -ArgumentList @('--embedded', '--parent-pid', "$PID") -PassThru -WindowStyle Hidden
+          try {
+            $healthy = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              if ($engine.HasExited) { throw 'Embedded engine exited unexpectedly' }
+              try {
+                $status = Invoke-WebRequest 'http://127.0.0.1:17777/status' -TimeoutSec 2
+                if ($status.StatusCode -eq 200) { $healthy = $true; break }
+              } catch { }
+            }
+            if (-not $healthy) { throw 'Embedded engine did not expose local status' }
+            $forbidden = Invoke-WebRequest 'http://127.0.0.1:17777/print' -Method POST -Body '{}' -ContentType 'application/json' -SkipHttpErrorCheck
+            if ($forbidden.StatusCode -ne 403) { throw "Originless print was not forbidden: $($forbidden.StatusCode)" }
+            $after = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).'Restora Agent'
+            if ($before -ne $after) { throw 'Embedded engine changed standalone autostart registry entry' }
+          } finally {
+            Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue
+          }
       # The exe of every push and pull request, under the run's Artifacts (kept 30 days). Releases are made by tagging.
       - uses: actions/upload-artifact@v4
         with:
