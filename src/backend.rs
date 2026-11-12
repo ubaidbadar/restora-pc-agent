@@ -42,6 +42,7 @@ struct Trying {
 pub async fn run(agent: Arc<Agent>) {
     let mut trying: HashMap<String, Trying> = HashMap::new();
     let mut reported = Instant::now() - REPORT_PRINTERS;
+    let mut printer_revision = String::new();
     loop {
         tokio::time::sleep(POLL).await;
         let Some(config) = agent.config.lock().unwrap().clone() else { continue };
@@ -72,12 +73,35 @@ pub async fn run(agent: Arc<Agent>) {
                 continue;
             }
         };
-        agent.online.store(true, Ordering::Relaxed);
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
             tracing::warn!("this agent was removed in Settings; pair it again");
             agent.unpair();
             crate::local::open_setup();
             continue;
+        }
+        if !response.status().is_success() {
+            agent.online.store(false, Ordering::Relaxed);
+            tracing::warn!("Restora returned HTTP {} while fetching print jobs", response.status());
+            continue;
+        }
+        agent.online.store(true, Ordering::Relaxed);
+        // The backend includes a hash of staff-configured printer settings in the
+        // existing two-second jobs response. Fetch only when the hash changes.
+        // Older backends without this header still work via the five-minute report.
+        let revision = response.headers().get("X-Restora-Printer-Revision")
+            .and_then(|header| header.to_str().ok()).unwrap_or("").to_string();
+        if !revision.is_empty() && revision != printer_revision {
+            if let Ok(answer) = agent.http.get(format!("{url}/printers"))
+                .bearer_auth(&config.token).send().await {
+                if let Ok(answer) = answer.error_for_status() {
+                    if let Ok(body) = answer.json::<serde_json::Value>().await {
+                        if body["printers"].is_array() {
+                            agent.set_printers(body["printers"].clone());
+                            printer_revision = revision;
+                        }
+                    }
+                }
+            }
         }
         let Ok(jobs) = response.json::<Vec<Job>>().await else { continue };
 
