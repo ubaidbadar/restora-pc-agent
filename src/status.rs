@@ -42,6 +42,7 @@ pub struct PrinterRow {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub paired: bool,
+    pub branch_id: Option<String>,
     pub online: bool,
     pub version: &'static str,
     pub headline: Headline,
@@ -73,6 +74,7 @@ pub fn headline(paired: bool, online: bool, set_up: usize, missing: usize, faili
 /// Reads everything once. Cheap enough to call every few seconds; blocking, so async callers use `spawn_blocking`.
 pub fn snapshot(agent: &Agent) -> Snapshot {
     let paired = agent.paired();
+    let branch_id = agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
     let online = agent.online.load(std::sync::atomic::Ordering::Relaxed);
     let windows = printers::list().ok();
     let recent = agent.recent();
@@ -104,7 +106,7 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
     let missing = used.iter().filter(|r| r.found == Some(false)).count();
     let failing = used.iter().filter(|r| r.last_ok == Some(false)).count();
     let found = used.iter().filter(|r| r.found == Some(true)).count();
-    Snapshot { paired, online, version: env!("CARGO_PKG_VERSION"), headline: headline(paired, online, set_up, missing, failing, found), printers: rows, recent }
+    Snapshot { paired, branch_id, online, version: env!("CARGO_PKG_VERSION"), headline: headline(paired, online, set_up, missing, failing, found), printers: rows, recent }
 }
 
 #[cfg(test)]
