@@ -46,8 +46,12 @@ fn safe_image(bytes: &[u8]) -> bool {
         return false;
     }
     let reader = image::ImageReader::new(Cursor::new(bytes));
-    let Ok(reader) = reader.with_guessed_format() else { return false };
-    let Ok((width, height)) = reader.into_dimensions() else { return false };
+    let Ok(reader) = reader.with_guessed_format() else {
+        return false;
+    };
+    let Ok((width, height)) = reader.into_dimensions() else {
+        return false;
+    };
     width > 0 && height > 0 && (width as u64) * (height as u64) <= MAX_PIXELS
 }
 
@@ -63,7 +67,8 @@ fn http() -> &'static reqwest::Client {
                     attempt.follow()
                 }
             }))
-            .build().expect("HTTPS logo client")
+            .build()
+            .expect("HTTPS logo client")
     })
 }
 
@@ -76,7 +81,9 @@ pub async fn load(url: Option<&str>) -> Option<Vec<u8>> {
         if encoded.len() > (MAX_BYTES * 4 / 3 + 8) {
             return None;
         }
-        let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .ok()?;
         return safe_image(&bytes).then_some(bytes);
     }
 
@@ -91,7 +98,13 @@ pub async fn load(url: Option<&str>) -> Option<Vec<u8>> {
         }
     }
 
-    let mut response = http().get(remote).send().await.ok()?.error_for_status().ok()?;
+    let mut response = http()
+        .get(remote)
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?;
     if !safe_remote_url(response.url()) {
         return None;
     }
@@ -114,7 +127,9 @@ pub async fn load(url: Option<&str>) -> Option<Vec<u8>> {
 /// The ESC/POS bytes that print `file` (PNG, JPEG, WebP or GIF) centred on a roll `width` characters wide: at most half
 /// the roll wide and 160 dots tall, in black and white with Floyd–Steinberg dithering, see-through parts white.
 pub fn raster(file: &[u8], width: usize) -> Option<Vec<u8>> {
-    if !safe_image(file) { return None; }
+    if !safe_image(file) {
+        return None;
+    }
     let image = image::load_from_memory(file).ok()?;
     // 12 dots per character: 576 dots on an 80 mm roll, 384 on 58 mm.
     let (max_w, max_h) = ((width * 12 / 2) as u32, 160u32);
@@ -235,13 +250,21 @@ mod tests {
     #[test]
     fn receipt_logos_reject_private_endpoints_and_decompression_bombs() {
         for bad in [
-            "http://example.org/logo.png", "https://127.0.0.1/logo.png",
-            "https://192.168.1.2/logo.png", "https://localhost/logo.png",
-            "https://printer.local/logo.png", "https://user:pass@example.org/logo.png",
+            "http://example.org/logo.png",
+            "https://127.0.0.1/logo.png",
+            "https://192.168.1.2/logo.png",
+            "https://localhost/logo.png",
+            "https://printer.local/logo.png",
+            "https://user:pass@example.org/logo.png",
         ] {
-            assert!(!safe_remote_url(&reqwest::Url::parse(bad).unwrap()), "{bad}");
+            assert!(
+                !safe_remote_url(&reqwest::Url::parse(bad).unwrap()),
+                "{bad}"
+            );
         }
-        assert!(safe_remote_url(&reqwest::Url::parse("https://storage.googleapis.com/logo.png").unwrap()));
+        assert!(safe_remote_url(
+            &reqwest::Url::parse("https://storage.googleapis.com/logo.png").unwrap()
+        ));
         assert!(!safe_image(&png(3000, 3000, |_, _| Rgba([0, 0, 0, 255]))));
     }
 
