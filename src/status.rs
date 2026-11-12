@@ -51,30 +51,77 @@ pub struct Snapshot {
 }
 
 /// The one line shown first, worst news first. "Good" only when every layer checked out.
-pub fn headline(paired: bool, online: bool, set_up: usize, missing: usize, failing: usize, found: usize) -> Headline {
+pub fn headline(
+    paired: bool,
+    online: bool,
+    set_up: usize,
+    missing: usize,
+    failing: usize,
+    found: usize,
+) -> Headline {
     let (tone, title, detail) = if !paired {
-        (Tone::Neutral, "Not connected to Restora yet".to_string(), "Click Connect to Restora below and sign in. It takes a minute.".to_string())
+        (
+            Tone::Neutral,
+            "Not connected to Restora yet".to_string(),
+            "Click Connect to Restora below and sign in. It takes a minute.".to_string(),
+        )
     } else if !online {
-        (Tone::Warn, "No internet connection".to_string(), "New slips wait in Restora and print here as soon as the internet is back.".to_string())
+        (
+            Tone::Warn,
+            "No internet connection".to_string(),
+            "New slips wait in Restora and print here as soon as the internet is back.".to_string(),
+        )
     } else if set_up == 0 {
-        (Tone::Warn, "No printer is set up yet".to_string(), "In Restora, open Settings, then Printers, and choose what each printer prints.".to_string())
+        (
+            Tone::Warn,
+            "No printer is set up yet".to_string(),
+            "In Restora, open Settings, then Printers, and choose what each printer prints."
+                .to_string(),
+        )
     } else if missing > 0 {
-        let what = if missing == 1 { "A printer was not found on this PC".to_string() } else { format!("{missing} printers were not found on this PC") };
+        let what = if missing == 1 {
+            "A printer was not found on this PC".to_string()
+        } else {
+            format!("{missing} printers were not found on this PC")
+        };
         (Tone::Bad, what, "Check that it is switched on and plugged in. Slips for it wait and print when it is back.".to_string())
     } else if failing > 0 {
-        let what = if failing == 1 { "The last slip did not print".to_string() } else { format!("{failing} printers did not print their last slip") };
+        let what = if failing == 1 {
+            "The last slip did not print".to_string()
+        } else {
+            format!("{failing} printers did not print their last slip")
+        };
         (Tone::Bad, what, "Check paper and the cover. Restora tries again for 15 minutes, then marks the slip as failed.".to_string())
     } else {
-        let n = if found == 1 { "1 printer is".to_string() } else { format!("{found} printers are") };
-        (Tone::Good, "Connected and listening".to_string(), format!("{n} found on this PC. Windows cannot tell paper or cover status, so check those when a slip is missing."))
+        let n = if found == 1 {
+            "1 printer is".to_string()
+        } else {
+            format!("{found} printers are")
+        };
+        (
+            Tone::Good,
+            "Connected and listening".to_string(),
+            format!(
+                "{n} found on this PC. Windows cannot tell paper or cover status, so check those when a slip is missing."
+            ),
+        )
     };
-    Headline { tone, title, detail }
+    Headline {
+        tone,
+        title,
+        detail,
+    }
 }
 
 /// Reads everything once. Cheap enough to call every few seconds; blocking, so async callers use `spawn_blocking`.
 pub fn snapshot(agent: &Agent) -> Snapshot {
     let paired = agent.paired();
-    let branch_id = agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
+    let branch_id = agent
+        .config
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|config| config.branch_id.clone());
     let online = agent.online.load(std::sync::atomic::Ordering::Relaxed);
     let windows = printers::list().ok();
     let recent = agent.recent();
@@ -82,15 +129,32 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
 
     let mut rows: Vec<PrinterRow> = Vec::new();
     for p in configured.as_array().into_iter().flatten() {
-        let Some(system_name) = p["systemName"].as_str() else { continue };
-        let label = p["label"].as_str().filter(|l| !l.trim().is_empty()).unwrap_or(system_name);
-        let prints = p["prints"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default();
+        let Some(system_name) = p["systemName"].as_str() else {
+            continue;
+        };
+        let label = p["label"]
+            .as_str()
+            .filter(|l| !l.trim().is_empty())
+            .unwrap_or(system_name);
+        let prints = p["prints"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|k| k.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
         rows.push(PrinterRow {
             name: label.to_string(),
             system_name: system_name.to_string(),
             prints,
-            found: windows.as_ref().map(|list| list.iter().any(|n| n == system_name)),
-            last_ok: recent.iter().find(|r| r.printer == system_name).map(|r| r.state == "printed"),
+            found: windows
+                .as_ref()
+                .map(|list| list.iter().any(|n| n == system_name)),
+            last_ok: recent
+                .iter()
+                .find(|r| r.printer == system_name)
+                .map(|r| r.state == "printed"),
             unused: false,
         });
     }
@@ -98,7 +162,14 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
     if let Some(list) = &windows {
         for name in list {
             if !rows.iter().any(|r| &r.system_name == name) {
-                rows.push(PrinterRow { name: name.clone(), system_name: name.clone(), prints: Vec::new(), found: Some(true), last_ok: None, unused: true });
+                rows.push(PrinterRow {
+                    name: name.clone(),
+                    system_name: name.clone(),
+                    prints: Vec::new(),
+                    found: Some(true),
+                    last_ok: None,
+                    unused: true,
+                });
             }
         }
     }
@@ -106,7 +177,15 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
     let missing = used.iter().filter(|r| r.found == Some(false)).count();
     let failing = used.iter().filter(|r| r.last_ok == Some(false)).count();
     let found = used.iter().filter(|r| r.found == Some(true)).count();
-    Snapshot { paired, branch_id, online, version: env!("CARGO_PKG_VERSION"), headline: headline(paired, online, set_up, missing, failing, found), printers: rows, recent }
+    Snapshot {
+        paired,
+        branch_id,
+        online,
+        version: env!("CARGO_PKG_VERSION"),
+        headline: headline(paired, online, set_up, missing, failing, found),
+        printers: rows,
+        recent,
+    }
 }
 
 #[cfg(test)]
