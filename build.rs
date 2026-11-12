@@ -11,7 +11,10 @@ fn main() {
         .set_icon("assets/restora.ico")
         .set_manifest_file("assets/restora.manifest")
         .set("ProductName", "Restora Print")
-        .set("FileDescription", "Restora Print: prints Restora orders on local printers")
+        .set(
+            "FileDescription",
+            "Restora Print: prints Restora orders on local printers",
+        )
         .set("CompanyName", "Restora")
         .set("LegalCopyright", "Copyright Restora")
         .set("OriginalFilename", "restora-pc-agent.exe")

@@ -27,10 +27,17 @@ impl Escpos {
         let left = ascii(left);
         let right = ascii(right);
         let width = self.width / self.scale;
+        if width == 0 {
+            self.bytes.push(b'\n');
+            return;
+        }
+        // Keep the end of long totals, including the monetary digits.
+        let right = &right[right.len().saturating_sub(width)..];
         let room = width.saturating_sub(right.len() + 1);
-        self.bytes.extend(&left[..left.len().min(room)]);
-        let gap = width.saturating_sub(left.len().min(room) + right.len());
-        self.bytes.extend(std::iter::repeat_n(b' ', gap));
+        let left = &left[..left.len().min(room)];
+        self.bytes.extend(left);
+        self.bytes
+            .extend(std::iter::repeat_n(b' ', width - left.len() - right.len()));
         self.bytes.extend(right);
         self.bytes.push(b'\n');
     }
@@ -138,7 +145,10 @@ mod tests {
         for width in [32, 48] {
             let mut printer = Escpos::new(width);
             printer.rule('-');
-            assert_eq!(&printer.bytes[2..], format!("{}\n", "-".repeat(width)).as_bytes());
+            assert_eq!(
+                &printer.bytes[2..],
+                format!("{}\n", "-".repeat(width)).as_bytes()
+            );
         }
     }
 
@@ -147,35 +157,72 @@ mod tests {
         let mut printer = Escpos::new(32);
         printer.size(2);
         printer.rule('-');
-        assert!(printer.bytes.ends_with(format!("{}\n", "-".repeat(16)).as_bytes()));
+        assert!(
+            printer
+                .bytes
+                .ends_with(format!("{}\n", "-".repeat(16)).as_bytes())
+        );
     }
 
     #[test]
     fn monetary_columns_are_kept_right_aligned() {
         let mut printer = Escpos::new(32);
         printer.pair("Total", "Rs 2,900");
-        assert!(printer.bytes.ends_with(b"Total                   Rs 2,900\n"));
+        assert!(
+            printer
+                .bytes
+                .ends_with(b"Total                   Rs 2,900\n")
+        );
+    }
+
+    #[test]
+    fn long_right_hand_values_never_overflow_58_or_80mm_paper() {
+        for width in [32, 48] {
+            let mut printer = Escpos::new(width);
+            let amount = "Total PKR 12345678901234567890123456789012345678901234567890";
+            printer.pair("Grand total including everything", amount);
+            let printed = &printer.bytes[2..printer.bytes.len() - 1];
+            assert_eq!(printed.len(), width);
+            assert!(printed.ends_with(&amount.as_bytes()[amount.len() - width..]));
+        }
+
+        let mut printer = Escpos::new(32);
+        printer.size(2);
+        let start = printer.bytes.len();
+        printer.pair("Grand total", "Rs 999999999999999999999");
+        assert_eq!(printer.bytes.len() - start, 17);
     }
 
     #[test]
     fn thermal_slips_end_with_a_paper_cut_command() {
         let mut printer = Escpos::new(48);
         printer.cut();
-        assert!(printer.bytes.ends_with(&[b'\n', b'\n', b'\n', 0x1d, b'V', 66, 0]));
+        assert!(
+            printer
+                .bytes
+                .ends_with(&[b'\n', b'\n', b'\n', 0x1d, b'V', 66, 0])
+        );
     }
 
     #[test]
     fn long_unbroken_item_names_fit_the_receipt_width() {
-        assert_eq!(wrap("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 8),
-                   vec!["ABCDEFGH", "IJKLMNOP", "QRSTUVWX", "YZ"]);
-        assert_eq!(wrap("Karahi ABCDEFGHIJKLMNOP", 8),
-                   vec!["Karahi", "ABCDEFGH", "IJKLMNOP"]);
+        assert_eq!(
+            wrap("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 8),
+            vec!["ABCDEFGH", "IJKLMNOP", "QRSTUVWX", "YZ"]
+        );
+        assert_eq!(
+            wrap("Karahi ABCDEFGHIJKLMNOP", 8),
+            vec!["Karahi", "ABCDEFGH", "IJKLMNOP"]
+        );
     }
 
     #[test]
     fn wrapping_never_exceeds_requested_columns() {
         for width in [8, 16, 32, 48] {
-            let lines = wrap("Large-Customized-Item-Without-Spaces extra toppings and notes", width);
+            let lines = wrap(
+                "Large-Customized-Item-Without-Spaces extra toppings and notes",
+                width,
+            );
             assert!(!lines.is_empty());
             assert!(lines.iter().all(|line| line.len() <= width));
         }
