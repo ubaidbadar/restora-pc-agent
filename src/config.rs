@@ -8,6 +8,9 @@ pub struct Config {
     pub api: String,
     /// The agent's own key; the backend keeps only its hash.
     pub token: String,
+    /// Branch authorized by Restora. Old installations omit this until reconnected.
+    #[serde(default, rename = "branchId")]
+    pub branch_id: Option<String>,
 }
 
 /// `%APPDATA%\Restora` on Windows (`~/.config/restora` elsewhere, for development).
