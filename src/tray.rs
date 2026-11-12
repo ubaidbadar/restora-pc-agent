@@ -1,13 +1,15 @@
 //! The tray icon: the only window the agent has. Windows only.
-use crate::{agent::Agent, status};
 #[cfg(not(feature = "store"))]
 use crate::config;
+use crate::{agent::Agent, status};
 use std::sync::Arc;
-use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 #[cfg(not(feature = "store"))]
 use tray_icon::menu::CheckMenuItem;
+use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, SetTimer, TranslateMessage};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DispatchMessageW, GetMessageW, MSG, SetTimer, TranslateMessage,
+};
 #[cfg(not(feature = "store"))]
 use winreg::{RegKey, enums::HKEY_CURRENT_USER};
 
@@ -18,12 +20,17 @@ const RUN_NAME: &str = "RestoraPrintAgent";
 
 #[cfg(not(feature = "store"))]
 fn autostart_enabled() -> bool {
-    RegKey::predef(HKEY_CURRENT_USER).open_subkey(RUN_KEY).and_then(|key| key.get_value::<String, _>(RUN_NAME)).is_ok()
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(RUN_KEY)
+        .and_then(|key| key.get_value::<String, _>(RUN_NAME))
+        .is_ok()
 }
 
 #[cfg(not(feature = "store"))]
 fn set_autostart(on: bool) {
-    let Ok((key, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY) else { return };
+    let Ok((key, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY) else {
+        return;
+    };
     if on {
         if let Ok(exe) = std::env::current_exe() {
             let _ = key.set_value(RUN_NAME, &format!("\"{}\" --background", exe.display()));
@@ -45,7 +52,16 @@ pub fn open(url: &str) {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     use windows::core::{HSTRING, w};
-    unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(url), None, None, SW_SHOWNORMAL) };
+    unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            &HSTRING::from(url),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
 }
 
 /// The tray text for a status: short, and the same words as the setup page.
@@ -66,7 +82,10 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
         // Upgrade old portable Run entries to silent startup without resetting
         // the staff's existing Start-with-Windows preference.
         if let Ok(key) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(RUN_KEY) {
-            if key.get_value::<String, _>(RUN_NAME).is_ok_and(|command| !command.contains("--background")) {
+            if key
+                .get_value::<String, _>(RUN_NAME)
+                .is_ok_and(|command| !command.contains("--background"))
+            {
                 set_autostart(true);
             }
         }
@@ -81,8 +100,19 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
     #[cfg(not(feature = "store"))]
     let autostart = CheckMenuItem::new("Start with Windows", true, autostart_enabled(), None);
     let quit = MenuItem::new("Quit (stops printing)", true, None);
-    let _ = menu.append_items(&[&state, &PredefinedMenuItem::separator(), &setup, &diagnostics, &autostart, &PredefinedMenuItem::separator(), &quit]);
-    let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_menu_on_left_click(false).with_tooltip("Restora Agent");
+    let _ = menu.append_items(&[
+        &state,
+        &PredefinedMenuItem::separator(),
+        &setup,
+        &diagnostics,
+        &autostart,
+        &PredefinedMenuItem::separator(),
+        &quit,
+    ]);
+    let mut builder = TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_menu_on_left_click(false)
+        .with_tooltip("Restora Agent");
     if let Some(icon) = icon() {
         builder = builder.with_icon(icon);
     }
@@ -112,7 +142,12 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
             }
         }
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
                 open(app_url);
             }
         }
@@ -126,4 +161,3 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
         }
     }
 }
-
