@@ -16,8 +16,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo test --locked
-      - run: cargo build --release --locked
+      # The same Windows release gate maintainers run locally: formatting,
+      # clippy, unit/integration tests (including DPAPI), then release build.
+      - name: Verify Windows release candidate
+        shell: pwsh
+        run: ./scripts/verify-local.ps1 -Release
       # The exe of every push and pull request, under the run's Artifacts (kept 30 days). Releases are made by tagging.
       - uses: actions/upload-artifact@v4
         with:
