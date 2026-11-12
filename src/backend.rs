@@ -221,7 +221,8 @@ pub async fn run(agent: Arc<Agent>) {
             .and_then(|header| header.to_str().ok())
             .unwrap_or("")
             .to_string();
-        if !revision.is_empty() && revision != printer_revision
+        if !revision.is_empty()
+            && revision != printer_revision
             && let Ok(answer) = agent
                 .http
                 .get(format!("{url}/printers"))
