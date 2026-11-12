@@ -183,3 +183,17 @@ async fn print(State(local): State<Shared>, Json(mut request): Json<PrintRequest
         Err(message) => (StatusCode::BAD_GATEWAY, Json(json!({ "message": message }))).into_response(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::branch_allowed;
+
+    #[test]
+    fn a_paired_agent_never_prints_for_another_branch() {
+        assert!(branch_allowed(Some("branch-a"), Some("branch-a")));
+        assert!(!branch_allowed(Some("branch-a"), Some("branch-b")));
+        assert!(!branch_allowed(Some("branch-a"), None));
+        // Older installations have no branch until they reconnect.
+        assert!(branch_allowed(None, None));
+    }
+}
