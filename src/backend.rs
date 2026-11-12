@@ -54,9 +54,12 @@ pub async fn run(agent: Arc<Agent>) {
                 if let Ok(response) = sent.map(|r| r.error_for_status()) {
                     if let Ok(answer) = response {
                         if let Ok(body) = answer.json::<serde_json::Value>().await {
-                            agent.set_printers(body["printers"].clone());
+                            if let Err(error) = agent.set_printers(body["printers"].clone()) {
+                                tracing::warn!("{error}");
+                            } else {
+                                reported = Instant::now();
+                            }
                         }
-                        reported = Instant::now();
                     }
                 }
             } else {
@@ -96,8 +99,11 @@ pub async fn run(agent: Arc<Agent>) {
                 if let Ok(answer) = answer.error_for_status() {
                     if let Ok(body) = answer.json::<serde_json::Value>().await {
                         if body["printers"].is_array() {
-                            agent.set_printers(body["printers"].clone());
-                            printer_revision = revision;
+                            if let Err(error) = agent.set_printers(body["printers"].clone()) {
+                                tracing::warn!("{error}");
+                            } else {
+                                printer_revision = revision;
+                            }
                         }
                     }
                 }
