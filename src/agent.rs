@@ -1,9 +1,9 @@
 use crate::{config::{self, Config}, printers, slips};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io::Write,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -27,6 +27,10 @@ pub struct Agent {
     pub config: Mutex<Option<Config>>,
     /// `orderKey|kind|printer` of printed slips, kept in printed.log, so the same slip is never printed twice (also after a restart).
     printed: Mutex<HashSet<String>>,
+    /// Prevent concurrent submissions to the same printer without blocking unrelated printers.
+    printer_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// On unreadable history, fail closed instead of potentially repeating printed orders.
+    journal_ok: bool,
     /// The printers as staff set them in Restora, kept (printers.json) so the web app on this PC can print without internet.
     printers: Mutex<serde_json::Value>,
     pub http: reqwest::Client,
@@ -72,9 +76,23 @@ struct Paired {
 
 impl Agent {
     pub fn new() -> Self {
-        let printed = std::fs::read_to_string(config::folder().join("printed.log")).unwrap_or_default().lines().map(String::from).collect();
+        let (printed, journal_ok) = match std::fs::read_to_string(config::folder().join("printed.log")) {
+            Ok(contents) => (contents.lines().map(String::from).collect(), true),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => (HashSet::new(), true),
+            Err(err) => {
+                tracing::error!("cannot read printed slip journal: {err}");
+                (HashSet::new(), false)
+            }
+        };
         let printers = std::fs::read(config::folder().join("printers.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_else(|| serde_json::json!([]));
-        Self { config: Mutex::new(config::load()), printed: Mutex::new(printed), printers: Mutex::new(printers), http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap(), online: std::sync::atomic::AtomicBool::new(false), recent: Mutex::new(VecDeque::new()) }
+        Self {
+            config: Mutex::new(config::load()), printed: Mutex::new(printed),
+            printer_locks: Mutex::new(HashMap::new()), journal_ok,
+            printers: Mutex::new(printers),
+            http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap(),
+            online: std::sync::atomic::AtomicBool::new(false),
+            recent: Mutex::new(VecDeque::new()),
+        }
     }
 
     pub fn paired(&self) -> bool {
@@ -85,24 +103,66 @@ impl Agent {
         format!("{}|{}|{}", slip.order_key, slip.kind, slip.printer)
     }
 
-    /// Prints the slip unless it was printed before. Answers whether it printed now.
+    /// A durable copy marker is recorded after each accepted spooler submission.
+    /// Existing full-slip entries remain valid when upgrading from earlier agents.
+    /// A crash between spooler acceptance and this write remains ambiguous: no
+    /// generic thermal printer can guarantee physical exactly-once delivery.
     pub fn print(&self, slip: &Slip) -> Result<bool, String> {
-        // Hold the mutex through the spooler write and journal update. Two concurrent
-        // submissions of one slip must never both pass the duplicate check.
-        let mut printed = self.printed.lock().unwrap();
+        if !self.journal_ok {
+            return Err("Printed slip history cannot be read. Check agent.log and the disk before retrying.".into());
+        }
+        let lock = {
+            let mut locks = self.printer_locks.lock().map_err(|e| e.to_string())?;
+            Arc::clone(locks.entry(slip.printer.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(()))))
+        };
+        // Only this physical printer is serialized; other printers can accept jobs.
+        let _printer = lock.lock().map_err(|e| e.to_string())?;
         let key = Self::key(slip);
-        if printed.contains(&key) {
+        if self.printed.lock().map_err(|e| e.to_string())?.contains(&key) {
             return Ok(false);
         }
-        let bytes = slips::render(slip.kind, slip.order, slip.header, slip.width).ok_or("kind must be kitchen or receipt")?;
-        let sent = (0..slip.copies.clamp(1, 5)).try_for_each(|_| printers::print_raw(slip.printer, &bytes));
-        self.note(slip, sent.as_ref().err().cloned());
-        sent?;
-        if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(config::folder().join("printed.log")) {
-            let _ = writeln!(log, "{key}");
+
+        let bytes = slips::render(slip.kind, slip.order, slip.header, slip.width)
+            .ok_or("kind must be kitchen or receipt")?;
+        let mut submitted = false;
+        for copy in 0..slip.copies.clamp(1, 5) {
+            let marker = format!("{key}|copy:{copy}");
+            if self.printed.lock().map_err(|e| e.to_string())?.contains(&marker) {
+                continue;
+            }
+            if let Err(err) = printers::print_raw(slip.printer, &bytes) {
+                self.note(slip, Some(err.clone()));
+                return Err(err);
+            }
+            submitted = true;
+            // If persistence fails, remember the copy in this process to prevent
+            // a retry from immediately printing it again.
+            self.printed.lock().map_err(|e| e.to_string())?.insert(marker.clone());
+            if let Err(err) = Self::append_journal(&marker) {
+                let message = format!("Windows accepted the print job, but saving its history failed: {err}. Check the disk before restarting this agent.");
+                self.note(slip, Some(message.clone()));
+                return Err(message);
+            }
         }
-        printed.insert(key);
-        Ok(true)
+
+        // Keep the legacy completed-key format for old versions and dedupe.
+        self.printed.lock().map_err(|e| e.to_string())?.insert(key.clone());
+        if let Err(err) = Self::append_journal(&key) {
+            let message = format!("Print copies submitted, but final history could not be saved: {err}");
+            self.note(slip, Some(message.clone()));
+            return Err(message);
+        }
+        self.note(slip, None);
+        Ok(submitted)
+    }
+
+    fn append_journal(key: &str) -> Result<(), String> {
+        let mut log = std::fs::OpenOptions::new().create(true).append(true)
+            .open(config::folder().join("printed.log"))
+            .map_err(|e| e.to_string())?;
+        writeln!(log, "{key}").map_err(|e| e.to_string())?;
+        log.sync_data().map_err(|e| e.to_string())
     }
 
     /// Keeps the result for the setup page; a slip tried again replaces its own line instead of adding one.
@@ -155,6 +215,13 @@ impl Agent {
         config::clear();
         self.set_printers(serde_json::json!([]));
         *self.config.lock().unwrap() = None;
+        // Keys from a removed restaurant must not suppress slips for a future tenant.
+        // Keep the history if disk access fails: fail closed rather than silently erase.
+        match std::fs::remove_file(config::folder().join("printed.log")) {
+            Ok(()) => self.printed.lock().unwrap().clear(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => self.printed.lock().unwrap().clear(),
+            Err(err) => tracing::error!("cannot clear the previous pairing's print journal: {err}"),
+        }
     }
 }
 
