@@ -121,7 +121,7 @@ fn number(amount: f64) -> String {
     let digits = whole.abs().to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -242,7 +242,9 @@ pub fn kitchen(order: &Order, width: usize) -> Vec<u8> {
         p.align(Side::Center);
         p.bold(true);
         p.size(2);
-        for row in ["X     X", " X   X ", "  X X  ", "   X   ", "  X X  ", " X   X ", "X     X"] {
+        for row in [
+            "X     X", " X   X ", "  X X  ", "   X   ", "  X X  ", " X   X ", "X     X",
+        ] {
             p.line(row);
         }
         p.invert(true);
@@ -300,7 +302,11 @@ pub fn kitchen(order: &Order, width: usize) -> Vec<u8> {
 pub fn receipt(order: &Order, header: &Header, width: usize) -> Vec<u8> {
     let mut p = Escpos::new(width);
     p.align(Side::Center);
-    if let Some(image) = header.logo_file.as_deref().and_then(|file| crate::logo::raster(file, width)) {
+    if let Some(image) = header
+        .logo_file
+        .as_deref()
+        .and_then(|file| crate::logo::raster(file, width))
+    {
         p.bytes.extend(image);
         p.line("");
     }
@@ -459,7 +465,11 @@ mod tests {
         .unwrap();
         let bytes = kitchen(&order, 48);
         let slip = text(&bytes);
-        assert!(slip.contains("#12 CANCELLED") && slip.contains("X     X") && slip.contains(" CANCELLED "));
+        assert!(
+            slip.contains("#12 CANCELLED")
+                && slip.contains("X     X")
+                && slip.contains(" CANCELLED ")
+        );
         assert!(slip.contains("By  Ali") && slip.contains("Reason: Customer left - changed mind"));
         assert!(slip.contains("4x CANCEL Burger"));
         // The cut line is white on black.
@@ -495,13 +505,34 @@ mod tests {
     #[test]
     fn receipt_starts_with_the_logo_when_there_is_one() {
         let mut file = std::io::Cursor::new(Vec::new());
-        image::RgbaImage::from_pixel(40, 40, image::Rgba([0, 0, 0, 255])).write_to(&mut file, image::ImageFormat::Png).unwrap();
-        let header = Header { restaurant: "Karahi House".into(), logo_file: Some(file.into_inner()), ..Header::default() };
+        image::RgbaImage::from_pixel(40, 40, image::Rgba([0, 0, 0, 255]))
+            .write_to(&mut file, image::ImageFormat::Png)
+            .unwrap();
+        let header = Header {
+            restaurant: "Karahi House".into(),
+            logo_file: Some(file.into_inner()),
+            ..Header::default()
+        };
         let bytes = receipt(&order(), &header, 48);
-        let logo = bytes.windows(4).position(|w| w == [0x1d, b'v', b'0', 0]).expect("a raster image");
-        let name = bytes.windows(12).position(|w| w == b"Karahi House").unwrap();
+        let logo = bytes
+            .windows(4)
+            .position(|w| w == [0x1d, b'v', b'0', 0])
+            .expect("a raster image");
+        let name = bytes
+            .windows(12)
+            .position(|w| w == b"Karahi House")
+            .unwrap();
         assert!(logo < name, "the logo is above the name");
-        assert!(!receipt(&order(), &Header::default(), 48).windows(4).any(|w| w == [0x1d, b'v', b'0', 0]));
-        assert!(!kitchen(&order(), 48).windows(4).any(|w| w == [0x1d, b'v', b'0', 0]), "kitchen slips have no logo");
+        assert!(
+            !receipt(&order(), &Header::default(), 48)
+                .windows(4)
+                .any(|w| w == [0x1d, b'v', b'0', 0])
+        );
+        assert!(
+            !kitchen(&order(), 48)
+                .windows(4)
+                .any(|w| w == [0x1d, b'v', b'0', 0]),
+            "kitchen slips have no logo"
+        );
     }
 }
