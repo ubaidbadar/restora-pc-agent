@@ -15,6 +15,21 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub const ADDRESS: &str = "127.0.0.1:17777";
 
+/// The customer-facing web app. Overrides are for local development only.
+pub fn app_url() -> String {
+    std::env::var("RESTORA_APP")
+        .ok()
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://localhost:"))
+        .unwrap_or_else(|| "https://app.restora.live".to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+pub fn printer_settings_url() -> String {
+    format!("{}/settings/printers", app_url())
+}
+
+
 /// Opens the setup page in the browser, so staff can type the pairing code. Elsewhere (development) it only logs where it is.
 pub fn open_setup() {
     let url = format!("http://{ADDRESS}");
@@ -39,6 +54,8 @@ struct PrintRequest {
     kind: String,
     /// The order's clientId when it has one, else its _id: what tells a slip printed offline from the synced order's.
     order_key: String,
+    /// The web app's selected restaurant branch; must match the paired agent.
+    branch_id: Option<String>,
     /// Characters per line: 48 (80 mm, default) or 32 (58 mm).
     width: Option<usize>,
     copies: Option<u32>,
@@ -77,14 +94,16 @@ pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
         .with_state(local)
 }
 
-/// Refuses a request from any page that is not Restora, and any whose Host is not this address (DNS rebinding).
+/// Refuses non-Restora browser requests, DNS rebinding, and originless writes.
+/// An Origin header is required for POST: CORS alone never authorizes a request.
 async fn guard(State(local): State<Shared>, request: Request, next: Next) -> Response {
     let host_ok = request.headers().get(header::HOST).and_then(|h| h.to_str().ok()) == Some(ADDRESS);
-    let origin_ok = match request.headers().get(header::ORIGIN).and_then(|o| o.to_str().ok()) {
-        Some(origin) => local.origins.iter().any(|allowed| allowed == origin),
-        None => true,
-    };
-    if !host_ok || !origin_ok {
+    let origin = request.headers().get(header::ORIGIN).and_then(|o| o.to_str().ok());
+    let origin_ok = origin.is_none_or(|origin| local.origins.iter().any(|allowed| allowed == origin));
+    let writable = request.method() != axum::http::Method::GET
+        && request.method() != axum::http::Method::HEAD
+        && request.method() != axum::http::Method::OPTIONS;
+    if !host_ok || !origin_ok || (writable && origin.is_none()) {
         return (StatusCode::FORBIDDEN, Json(json!({ "message": "Not allowed" }))).into_response();
     }
     next.run(request).await
@@ -94,10 +113,7 @@ async fn guard(State(local): State<Shared>, request: Request, next: Next) -> Res
 /// the agent itself, so no browser permission is needed. `RESTORA_APP` replaces the web app's address.
 async fn setup_page() -> Html<String> {
     let page = include_str!("setup.html");
-    Html(match std::env::var("RESTORA_APP") {
-        Ok(app) => page.replace("https://app.restora.live", app.trim_end_matches('/')),
-        Err(_) => page.to_string(),
-    })
+    Html(page.replace("https://app.restora.live", &app_url()))
 }
 
 async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> Response {
@@ -115,7 +131,8 @@ async fn status(State(local): State<Shared>) -> Json<crate::status::Snapshot> {
 
 /// The printers as staff set them in Restora (name, what each prints, paper), for the web app when it has no internet.
 async fn config(State(local): State<Shared>) -> Json<serde_json::Value> {
-    Json(json!({ "paired": local.agent.paired(), "printers": local.agent.printers() }))
+    let branch = local.agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
+    Json(json!({ "paired": local.agent.paired(), "branchId": branch, "printers": local.agent.printers() }))
 }
 
 async fn list_printers() -> Response {
@@ -125,10 +142,34 @@ async fn list_printers() -> Response {
     }
 }
 
+fn branch_allowed(paired_branch: Option<&str>, selected_branch: Option<&str>) -> bool {
+    paired_branch.is_none_or(|branch| selected_branch == Some(branch))
+}
+
 async fn print(State(local): State<Shared>, Json(mut request): Json<PrintRequest>) -> Response {
     let agent = local.agent.clone();
+    if !agent.paired() {
+        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Connect this agent to Restora first." }))).into_response();
+    }
+    let paired_branch = agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
+    if !branch_allowed(paired_branch.as_deref(), request.branch_id.as_deref()) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "message": "This PC belongs to a different Restora branch." }))).into_response();
+    }
+    if request.order_key.trim().is_empty() || request.order_key.len() > 200
+        || request.printer.len() > 200 || !matches!(request.kind.as_str(), "kitchen" | "receipt") {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "message": "Invalid print job." }))).into_response();
+    }
+    let printers = agent.printers();
+    let allowed = printers.as_array().is_some_and(|rows| rows.iter().any(|printer| {
+        printer["systemName"] == request.printer
+            && printer["present"] == true
+            && printer["prints"].as_array().is_some_and(|kinds| kinds.iter().any(|kind| kind == &request.kind))
+    }));
+    if !allowed {
+        return (StatusCode::FORBIDDEN, Json(json!({ "message": "This printer is not configured for this slip in Restora." }))).into_response();
+    }
     if request.kind == "receipt" {
-        request.header.logo_file = crate::logo::load(&agent.http, request.header.logo.as_deref()).await;
+        request.header.logo_file = crate::logo::load(request.header.logo.as_deref()).await;
     }
     // The blocking Windows calls stay off the async threads.
     let result = tokio::task::spawn_blocking(move || {
