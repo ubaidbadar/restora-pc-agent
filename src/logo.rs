@@ -92,10 +92,10 @@ pub async fn load(url: Option<&str>) -> Option<Vec<u8>> {
         return None;
     }
     let path = cached(url);
-    if let Ok(bytes) = std::fs::read(&path) {
-        if safe_image(&bytes) {
-            return Some(bytes);
-        }
+    if let Ok(bytes) = std::fs::read(&path)
+        && safe_image(&bytes)
+    {
+        return Some(bytes);
     }
 
     let mut response = http()
