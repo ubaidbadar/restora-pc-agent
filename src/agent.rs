@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     io::Write,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
     time::Duration,
 };
 
@@ -30,7 +30,7 @@ pub struct Agent {
     /// Prevent concurrent submissions to the same printer without blocking unrelated printers.
     printer_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     /// On unreadable history, fail closed instead of potentially repeating printed orders.
-    journal_ok: bool,
+    journal_ok: AtomicBool,
     /// The printers as staff set them in Restora, kept (printers.json) so the web app on this PC can print without internet.
     printers: Mutex<serde_json::Value>,
     pub http: reqwest::Client,
@@ -87,7 +87,7 @@ impl Agent {
         let printers = std::fs::read(config::folder().join("printers.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_else(|| serde_json::json!([]));
         Self {
             config: Mutex::new(config::load()), printed: Mutex::new(printed),
-            printer_locks: Mutex::new(HashMap::new()), journal_ok,
+            printer_locks: Mutex::new(HashMap::new()), journal_ok: AtomicBool::new(journal_ok),
             printers: Mutex::new(printers),
             http: reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap(),
             online: std::sync::atomic::AtomicBool::new(false),
@@ -108,7 +108,7 @@ impl Agent {
     /// A crash between spooler acceptance and this write remains ambiguous: no
     /// generic thermal printer can guarantee physical exactly-once delivery.
     pub fn print(&self, slip: &Slip) -> Result<bool, String> {
-        if !self.journal_ok {
+        if !self.journal_ok.load(Ordering::Relaxed) {
             return Err("Printed slip history cannot be read. Check agent.log and the disk before retrying.".into());
         }
         let lock = {
@@ -140,6 +140,7 @@ impl Agent {
             // a retry from immediately printing it again.
             self.printed.lock().map_err(|e| e.to_string())?.insert(marker.clone());
             if let Err(err) = Self::append_journal(&marker) {
+                self.journal_ok.store(false, Ordering::Relaxed);
                 let message = format!("Windows accepted the print job, but saving its history failed: {err}. Check the disk before restarting this agent.");
                 self.note(slip, Some(message.clone()));
                 return Err(message);
@@ -149,6 +150,7 @@ impl Agent {
         // Keep the legacy completed-key format for old versions and dedupe.
         self.printed.lock().map_err(|e| e.to_string())?.insert(key.clone());
         if let Err(err) = Self::append_journal(&key) {
+            self.journal_ok.store(false, Ordering::Relaxed);
             let message = format!("Print copies submitted, but final history could not be saved: {err}");
             self.note(slip, Some(message.clone()));
             return Err(message);
@@ -183,6 +185,9 @@ impl Agent {
     /// Pairs with the code from Settings, typed here or sent by the web app open on this PC (with the API it uses); the
     /// backend answers the key this agent uses from then on.
     pub async fn pair(&self, code: &str, api: Option<&str>) -> Result<(), String> {
+        if self.paired() {
+            return Err("This PC is already connected. Remove it from the original branch in Restora before reconnecting.".into());
+        }
         let api = api_for(api)?;
         let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": printers::list().unwrap_or_default() });
         let response = self.http.post(format!("{api}/print-agent/pair")).json(&body).send().await.map_err(|e| format!("Cannot reach Restora: {e}"))?;
@@ -193,6 +198,17 @@ impl Agent {
         let paired: Paired = response.json().await.map_err(|e| e.to_string())?;
         let config = Config { api, token: paired.token };
         config::save(&config).map_err(|e| format!("Cannot save the key: {e}"))?;
+        // A new pairing must not reuse completed keys from another restaurant.
+        // If old history cannot be cleared, disable printing rather than suppress
+        // valid jobs or risk emitting a duplicate after a restart.
+        match std::fs::remove_file(config::folder().join("printed.log")) {
+            Ok(()) => self.printed.lock().unwrap().clear(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => self.printed.lock().unwrap().clear(),
+            Err(err) => {
+                tracing::error!("cannot clear historical print journal after reconnect: {err}");
+                self.journal_ok.store(false, Ordering::Relaxed);
+            }
+        }
         *self.config.lock().unwrap() = Some(config);
         self.set_printers(paired.printers);
         Ok(())
@@ -220,7 +236,10 @@ impl Agent {
         match std::fs::remove_file(config::folder().join("printed.log")) {
             Ok(()) => self.printed.lock().unwrap().clear(),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => self.printed.lock().unwrap().clear(),
-            Err(err) => tracing::error!("cannot clear the previous pairing's print journal: {err}"),
+            Err(err) => {
+                tracing::error!("cannot clear the previous pairing's print journal: {err}");
+                self.journal_ok.store(false, Ordering::Relaxed);
+            },
         }
     }
 }
