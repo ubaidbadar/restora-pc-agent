@@ -3,7 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>Restora Print</title>
+<title>Restora Agent</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40' width='40' height='40'><rect width='40' height='40' rx='10' fill='%234F46E5'/><g fill='%23FFFFFF'><circle cx='20' cy='9.5' r='2.5'/><path d='M9 23a11 11 0 0 1 22 0z'/><rect x='7' y='25' width='26' height='4' rx='2'/><path d='M10.5 28h5L10 32.5z'/></g></svg>">
 <style>
   /* Restora's colors (restora-web src/index.css): primary indigo, ink text, white cards on a light page. Light only, like the web app. */
@@ -49,7 +49,9 @@
   button:active, .button:active { transform: translateY(1px); }
   button:focus-visible, .button:focus-visible { outline: none; box-shadow: var(--ring); }
   .button { min-height: 3.25rem; font-size: 1.0625rem; }
-  /* The code is the fallback: a quieter card under the button. */
+  #manual summary { cursor: pointer; color: var(--muted); font-size: .9rem; font-weight: 600; }
+  #manual form { margin-top: 1rem; }
+  /* The code is the fallback: only in Advanced. */
   #form label { font-weight: 600; color: var(--muted); }
   button:disabled { background: #CBD5E1; color: #475569; cursor: not-allowed; transform: none; }
   #message { min-height: 1.5em; margin-top: .5rem; }
@@ -74,7 +76,7 @@
 <main>
   <header>
     <svg class="logo" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="10" fill="#4F46E5"/><g fill="#FFFFFF"><circle cx="20" cy="9.5" r="2.5"/><path d="M9 23a11 11 0 0 1 22 0z"/><rect x="7" y="25" width="26" height="4" rx="2"/><path d="M10.5 28h5L10 32.5z"/></g></svg>
-    <h1>Restora Print</h1>
+    <h1>Restora Agent</h1>
     <span class="version" id="version"></span>
   </header>
 
@@ -89,13 +91,16 @@
     <a class="button" id="open" href="https://app.restora.live/settings/printers" target="_blank" rel="noopener">Connect to Restora</a>
   </section>
 
-  <form id="form" class="card" hidden>
+  <details id="manual" class="card" hidden>
+    <summary>Advanced: connect using a code</summary>
+    <form id="form" hidden>
     <label for="code">Or type a pairing code</label>
     <p id="how">In Restora on any device, open Settings, then Printers, add this PC and type the 6-digit code it shows.</p>
     <input id="code" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="000000" aria-describedby="how message">
     <button id="connect" disabled>Connect this PC</button>
     <p id="message" role="alert"></p>
-  </form>
+    </form>
+  </details>
 
   <section id="printersCard" class="card" hidden>
     <h2>Printers</h2>
@@ -107,7 +112,7 @@
     <ul id="recent"></ul>
   </section>
 
-  <p class="hint" id="hint" hidden>You can close this page. Restora Print keeps running in the tray, next to the clock. Click its icon to open this page again.</p>
+  <p class="hint" id="hint" hidden>You can close this page. Restora Agent keeps running in the tray, next to the clock. Click its icon to open this page again.</p>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
@@ -164,6 +169,7 @@
     $('title').textContent = h.title;
     $('detail').textContent = h.detail;
     $('version').textContent = status.version ? 'Version ' + status.version : '';
+    $('manual').hidden = status.paired;
     $('form').hidden = status.paired;
     $('quick').hidden = status.paired;
     $('hint').hidden = false;
@@ -175,7 +181,7 @@
       if (!status.printers.length) list.append(el('li', 'empty', 'No printer is installed in Windows. Install it from Windows settings; it shows up here by itself.'));
       const recent = $('recent');
       recent.replaceChildren(...status.recent.map(recentRow));
-      if (!status.recent.length) recent.append(el('li', 'empty', 'Nothing printed yet since Restora Print started.'));
+      if (!status.recent.length) recent.append(el('li', 'empty', 'Nothing printed yet since Restora Agent started.'));
     }
   }
 
@@ -184,7 +190,8 @@
     try {
       show(await (await fetch('/status')).json());
     } catch {
-      show({ paired: false, version: '', printers: [], recent: [], headline: { tone: 'bad', title: 'Restora Print is not running', detail: 'Open it again from the Start menu or the desktop icon.' } });
+      show({ paired: false, version: '', printers: [], recent: [], headline: { tone: 'bad', title: 'Restora Agent is not running', detail: 'Open it again from the Start menu or the desktop icon.' } });
+      $('manual').hidden = true;
       $('form').hidden = true;
       $('quick').hidden = true;
       $('hint').hidden = true;
