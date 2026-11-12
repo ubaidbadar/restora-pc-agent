@@ -4,12 +4,13 @@
 use crate::config;
 use base64::Engine;
 use image::{DynamicImage, GenericImageView, imageops::FilterType};
-use std::path::PathBuf;
+use std::{io::Cursor, net::IpAddr, path::PathBuf, sync::OnceLock};
 
 /// The longest a logo download may take; a receipt is not held up longer for its logo.
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// The largest logo file kept.
 const MAX_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PIXELS: u64 = 4_000_000;
 
 /// Where a logo is kept: one file per address, so a new logo (a new address) is downloaded again.
 fn cached(url: &str) -> PathBuf {
@@ -22,39 +23,113 @@ fn cached(url: &str) -> PathBuf {
     folder.join(format!("{hash:016x}"))
 }
 
-/// The logo's image file: from a `data:` address, from the kept copy, or downloaded and kept. None when it cannot be
-/// had (no internet the first time, a broken address): the receipt then prints without it.
-pub async fn load(http: &reqwest::Client, url: Option<&str>) -> Option<Vec<u8>> {
-    let url = url.filter(|u| !u.is_empty())?;
-    if let Some(data) = url.strip_prefix("data:") {
+/// Logos may be external, but must never be allowed to fetch loopback/private
+/// network resources through the Windows agent. No credentials or arbitrary ports.
+fn safe_remote_url(url: &reqwest::Url) -> bool {
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
+    if url.port().is_some_and(|port| port != 443) {
+        return false;
+    }
+    url.host_str().is_some_and(|host| {
+        let host = host.to_ascii_lowercase();
+        host != "localhost"
+            && !host.ends_with(".localhost")
+            && !host.ends_with(".local")
+            && host.parse::<IpAddr>().is_err()
+    })
+}
+
+fn safe_image(bytes: &[u8]) -> bool {
+    if bytes.len() > MAX_BYTES {
+        return false;
+    }
+    let reader = image::ImageReader::new(Cursor::new(bytes));
+    let Ok(reader) = reader.with_guessed_format() else {
+        return false;
+    };
+    let Ok((width, height)) = reader.into_dimensions() else {
+        return false;
+    };
+    width > 0 && height > 0 && (width as u64) * (height as u64) <= MAX_PIXELS
+}
+
+fn http() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(TIMEOUT)
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() > 3 || !safe_remote_url(attempt.url()) {
+                    attempt.stop()
+                } else {
+                    attempt.follow()
+                }
+            }))
+            .build()
+            .expect("HTTPS logo client")
+    })
+}
+
+/// Cached first, otherwise streamed with a strict byte limit. Only HTTPS remote
+/// images (with safe redirects) and bounded image data URLs are accepted.
+pub async fn load(url: Option<&str>) -> Option<Vec<u8>> {
+    let url = url.filter(|value| !value.is_empty())?;
+    if let Some(data) = url.strip_prefix("data:image/") {
         let (_, encoded) = data.split_once(";base64,")?;
-        return base64::engine::general_purpose::STANDARD
+        if encoded.len() > (MAX_BYTES * 4 / 3 + 8) {
+            return None;
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded)
-            .ok();
+            .ok()?;
+        return safe_image(&bytes).then_some(bytes);
+    }
+
+    let remote = reqwest::Url::parse(url).ok()?;
+    if !safe_remote_url(&remote) {
+        return None;
     }
     let path = cached(url);
-    if let Ok(bytes) = std::fs::read(&path) {
+    if let Ok(bytes) = std::fs::read(&path)
+        && safe_image(&bytes)
+    {
         return Some(bytes);
     }
-    let response = http
-        .get(url)
-        .timeout(TIMEOUT)
+
+    let mut response = http()
+        .get(remote)
         .send()
         .await
         .ok()?
         .error_for_status()
         .ok()?;
-    let bytes = response.bytes().await.ok()?;
-    if bytes.len() > MAX_BYTES || image::load_from_memory(&bytes).is_err() {
+    if !safe_remote_url(response.url()) {
         return None;
     }
-    let _ = std::fs::write(&path, &bytes);
-    Some(bytes.to_vec())
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.ok()? {
+        if bytes.len().saturating_add(chunk.len()) > MAX_BYTES {
+            return None;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if !safe_image(&bytes) {
+        return None;
+    }
+    if let Err(error) = std::fs::write(&path, &bytes) {
+        tracing::warn!("cannot cache restaurant receipt logo: {error}");
+    }
+    Some(bytes)
 }
 
 /// The ESC/POS bytes that print `file` (PNG, JPEG, WebP or GIF) centred on a roll `width` characters wide: at most half
 /// the roll wide and 160 dots tall, in black and white with Floyd–Steinberg dithering, see-through parts white.
 pub fn raster(file: &[u8], width: usize) -> Option<Vec<u8>> {
+    if !safe_image(file) {
+        return None;
+    }
     let image = image::load_from_memory(file).ok()?;
     // 12 dots per character: 576 dots on an 80 mm roll, 384 on 58 mm.
     let (max_w, max_h) = ((width * 12 / 2) as u32, 160u32);
@@ -172,6 +247,27 @@ mod tests {
         assert!(raster(b"<html>", 48).is_none());
     }
 
+    #[test]
+    fn receipt_logos_reject_private_endpoints_and_decompression_bombs() {
+        for bad in [
+            "http://example.org/logo.png",
+            "https://127.0.0.1/logo.png",
+            "https://192.168.1.2/logo.png",
+            "https://localhost/logo.png",
+            "https://printer.local/logo.png",
+            "https://user:pass@example.org/logo.png",
+        ] {
+            assert!(
+                !safe_remote_url(&reqwest::Url::parse(bad).unwrap()),
+                "{bad}"
+            );
+        }
+        assert!(safe_remote_url(
+            &reqwest::Url::parse("https://storage.googleapis.com/logo.png").unwrap()
+        ));
+        assert!(!safe_image(&png(3000, 3000, |_, _| Rgba([0, 0, 0, 255]))));
+    }
+
     #[tokio::test]
     async fn a_data_address_needs_no_internet() {
         let file = png(4, 4, |_, _| Rgba([0, 0, 0, 255]));
@@ -179,7 +275,7 @@ mod tests {
             "data:image/png;base64,{}",
             base64::engine::general_purpose::STANDARD.encode(&file)
         );
-        assert_eq!(load(&reqwest::Client::new(), Some(&url)).await, Some(file));
-        assert_eq!(load(&reqwest::Client::new(), None).await, None);
+        assert_eq!(load(Some(&url)).await, Some(file));
+        assert_eq!(load(None).await, None);
     }
 }
