@@ -134,7 +134,9 @@ impl Agent {
         let config = Config { api, token: paired.token };
         config::save(&config).map_err(|e| format!("Cannot save the key: {e}"))?;
         *self.config.lock().unwrap() = Some(config);
-        self.set_printers(paired.printers);
+        if let Err(error) = self.set_printers(paired.printers) {
+            tracing::error!("paired, but could not save offline printer settings: {error}");
+        }
         Ok(())
     }
 
@@ -142,18 +144,21 @@ impl Agent {
         self.printers.lock().unwrap().clone()
     }
 
-    pub fn set_printers(&self, printers: serde_json::Value) {
+    pub fn set_printers(&self, printers: serde_json::Value) -> Result<(), String> {
         if !printers.is_array() {
-            return;
+            return Err("Printer settings must be an array".to_string());
         }
-        let _ = std::fs::write(config::folder().join("printers.json"), printers.to_string());
-        *self.printers.lock().unwrap() = printers;
+        *self.printers.lock().unwrap() = printers.clone();
+        std::fs::write(config::folder().join("printers.json"), printers.to_string())
+            .map_err(|error| format!("Cannot save offline printer settings: {error}"))
     }
 
     /// The backend says this agent is no longer paired (it was removed in Settings): forget the key.
     pub fn unpair(&self) {
         config::clear();
-        self.set_printers(serde_json::json!([]));
+        if let Err(error) = self.set_printers(serde_json::json!([])) {
+            tracing::error!("could not clear offline printer settings: {error}");
+        }
         *self.config.lock().unwrap() = None;
     }
 }
