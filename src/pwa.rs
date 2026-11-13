@@ -4,7 +4,7 @@
 use crate::config;
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
-use winreg::{RegKey, enums::HKEY_CLASSES_ROOT;
+use winreg::{RegKey, enums::HKEY_CLASSES_ROOT};
 
 const NO_WINDOW: u32 = 0x0800_0000;
 
