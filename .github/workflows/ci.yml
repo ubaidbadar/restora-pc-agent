@@ -31,13 +31,20 @@ jobs:
             (Resolve-Path 'scripts/provision-pwa.ps1').Path,
             [ref]$tokens, [ref]$issues) | Out-Null
           if ($issues.Count -gt 0) { throw "Invalid PowerShell syntax: $issues" }
+          # Nonzero is the desired outcome for the deliberately missing MSIX.
+          # Don't let pwsh's native-command error preference preempt the assertion.
+          $PSNativeCommandUseErrorActionPreference = $false
+          $ErrorActionPreference = 'Continue'
           & powershell.exe -NoLogo -NoProfile -NonInteractive -File scripts/provision-pwa.ps1 `
-            -PackagePath "$env:RUNNER_TEMP\\missing.msix" `
+            -PackagePath "$env:RUNNER_TEMP\missing.msix" `
             -ExpectedSha256 ('0' * 64) `
             -PackageName BadarDigital.RestoraTest `
             -ExpectedPublisher CN=Test `
             -ApplicationId App
-          if ($LASTEXITCODE -eq 0) { throw 'Missing signed PWA was incorrectly accepted' }
+          $exitCode = $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          if ($exitCode -ne 1) { throw "Expected rejected MSIX (exit 1), got $exitCode" }
+          $global:LASTEXITCODE = 0
       - name: Smoke test built agent and loopback security on Windows
         shell: pwsh
         run: |
