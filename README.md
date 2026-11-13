@@ -84,7 +84,7 @@ package hash and manifest identity, then uses Windows' supported
 `Add-AppxPackage` to install the **trusted, signed** MSIX for the current
 user. It writes the installed AppUserModelID to
 `%APPDATA%\\restora\\pwa-aumid.txt`. On manual launch, the headless agent
-checks `Get-StartApps` and launches that existing Windows app through
+checks the current user's `Get-AppxPackage` registration and launches that Windows app through
 `shell:AppsFolder`; if absent, the Restora website opens as a fallback.
 Windows startup launches the print engine silently.
 
