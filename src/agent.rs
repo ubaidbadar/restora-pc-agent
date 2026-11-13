@@ -39,6 +39,8 @@ pub struct Agent {
     journal_ok: AtomicBool,
     /// The printers as staff set them in Restora, kept (printers.json) so the web app on this PC can print without internet.
     printers: Mutex<serde_json::Value>,
+    /// Last successful Windows printer discovery; status requests never call the blocking spooler API.
+    windows_printers: Mutex<Option<Vec<String>>>,
     pub http: reqwest::Client,
     /// Whether the last call to Restora got through, for the setup page.
     pub online: std::sync::atomic::AtomicBool,
@@ -109,6 +111,7 @@ impl Agent {
             printer_locks: Mutex::new(HashMap::new()),
             journal_ok: AtomicBool::new(journal_ok),
             printers: Mutex::new(printers),
+            windows_printers: Mutex::new(None),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(15))
                 .build()
@@ -248,7 +251,26 @@ impl Agent {
             return Err("This PC is already connected. Remove it from the original branch in Restora before reconnecting.".into());
         }
         let api = api_for(api)?;
-        let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": printers::list().unwrap_or_default() });
+        let windows_printers = match tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::task::spawn_blocking(printers::list),
+        ).await {
+            Ok(Ok(Ok(names))) => names,
+            Ok(Ok(Err(error))) => {
+                tracing::warn!("could not discover Windows printers while pairing: {error}");
+                Vec::new()
+            }
+            Ok(Err(error)) => {
+                tracing::warn!("Windows printer discovery task failed while pairing: {error}");
+                Vec::new()
+            }
+            Err(_) => {
+                tracing::warn!("Windows printer discovery timed out while pairing; it will retry in the background");
+                Vec::new()
+            }
+        };
+        self.set_windows_printers(windows_printers.clone());
+        let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": windows_printers });
         let response = self
             .http
             .post(format!("{api}/print-agent/pair"))
@@ -271,6 +293,7 @@ impl Agent {
             branch_id: paired.agent.map(|agent| agent.branch_id),
         };
         config::save(&config).map_err(|e| format!("Cannot save the key: {e}"))?;
+        config::clear_reconnect_required();
         // A new pairing must not reuse completed keys from another restaurant.
         // If old history cannot be cleared, disable printing rather than suppress
         // valid jobs or risk emitting a duplicate after a restart.
@@ -295,6 +318,14 @@ impl Agent {
         self.printers.lock().unwrap().clone()
     }
 
+    pub fn windows_printers(&self) -> Option<Vec<String>> {
+        self.windows_printers.lock().unwrap().clone()
+    }
+
+    pub fn set_windows_printers(&self, names: Vec<String>) {
+        *self.windows_printers.lock().unwrap() = Some(names);
+    }
+
     pub fn set_printers(&self, printers: serde_json::Value) -> Result<(), String> {
         if !printers.is_array() {
             return Err("Printer settings must be an array".to_string());
@@ -306,7 +337,9 @@ impl Agent {
 
     /// The backend says this agent is no longer paired (it was removed in Settings): forget the key.
     pub fn unpair(&self) {
+        config::require_reconnect();
         config::clear();
+        *self.windows_printers.lock().unwrap() = None;
         if let Err(error) = self.set_printers(serde_json::json!([])) {
             tracing::error!("could not clear offline printer settings: {error}");
         }
