@@ -14,7 +14,7 @@
   "Badar Digital" account (seller ID 97202990), checked 2026-11-09:
     Identity Name: BadarDigital.RestoraPrint  [CONFIRMED 2026-11-09 — dashboard name is Restora Agent, package identity unchanged]
     Publisher:     CN=72D821D7-890E-4CCA-94D2-675D84F355AA
-    Version:       0.1.17.0 (matches the latest GitHub release, v0.1.17;
+    Version:       0.1.18.0 (matches the latest GitHub release, v0.1.18;
                    Cargo.toml still says 0.1.0 — release.yml rewrites the
                    version in-build only, so nothing is committed back.
                    Do NOT change this version by hand: bump it only when
@@ -47,7 +47,7 @@
   <Identity
     Name="BadarDigital.RestoraPrint"
     Publisher="CN=72D821D7-890E-4CCA-94D2-675D84F355AA"
-    Version="0.1.17.0"
+    Version="0.1.18.0"
     ProcessorArchitecture="x64" />
 
   <Properties>
