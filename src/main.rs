@@ -8,6 +8,8 @@ mod escpos;
 mod local;
 mod logo;
 mod printers;
+#[cfg(windows)]
+mod pwa;
 mod slips;
 mod status;
 #[cfg(windows)]
@@ -93,6 +95,10 @@ fn main() {
     if let Some(parent) = embedded_pid {
         exit_with_parent(parent);
     }
+    // Opt-in until the signed PWA + single-installer has passed Windows acceptance.
+    // The existing Store and standalone printing behavior remains unchanged.
+    #[cfg(windows)]
+    let headless = embedded_pid.is_none() && std::env::args().any(|arg| arg == "--headless");
     #[cfg(windows)]
     let interactive = embedded_pid.is_none() && !launched_at_startup();
     // The Restora pages allowed to call the agent; RESTORA_ORIGINS (comma separated) replaces them.
@@ -112,7 +118,11 @@ fn main() {
             tracing::error!("cannot listen on {}: {err}", local::ADDRESS);
             #[cfg(windows)]
             if interactive {
-                tray::open(&local::printer_settings_url());
+                if headless {
+                    pwa::open();
+                } else {
+                    tray::open(&local::printer_settings_url());
+                }
             }
             #[cfg(not(windows))]
             local::open_setup();
@@ -133,7 +143,9 @@ fn main() {
     // without opening a browser every time the employee signs in.
     #[cfg(windows)]
     if interactive {
-        if paired {
+        if headless {
+            pwa::open();
+        } else if paired {
             tray::open(&local::app_url());
         } else {
             tray::open(&local::printer_settings_url());
@@ -145,9 +157,9 @@ fn main() {
     }
 
     #[cfg(windows)]
-    if embedded_pid.is_some() {
-        // Electron owns this process: no tray, browser window, Run-key autostart or
-        // standalone installer. The parent-handle watcher stops us on owner exit.
+    if embedded_pid.is_some() || headless {
+        // Electron remains parent-bound. The opt-in headless standalone process
+        // runs the same engine without a tray, local dashboard or browser on startup.
         runtime.block_on(std::future::pending::<()>());
     } else {
         tray::run(
