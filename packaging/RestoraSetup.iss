@@ -55,6 +55,24 @@ Filename: "{app}\restora-pc-agent.exe"; Flags: nowait skipifsilent
 Filename: "{app}\restora-pc-agent.exe"; Parameters: "--background"; Flags: nowait skipifnotsilent
 
 [Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  MarkerPath: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    MarkerPath := ExpandConstant('{userappdata}\\restora\\autostart.off');
+    if WizardIsTaskSelected('autostart') then
+      DeleteFile(MarkerPath)
+    else
+    begin
+      RegDeleteValue(HKCU, 'Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'RestoraPrintAgent');
+      ForceDirectories(ExtractFileDir(MarkerPath));
+      SaveStringToFile(MarkerPath, '', False);
+    end;
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;

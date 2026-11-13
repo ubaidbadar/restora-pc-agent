@@ -40,7 +40,7 @@ Release builds are made by GitHub Actions from this repository (`.github/workflo
 - **Status:** an application for free code signing from SignPath Foundation is pending. Until it is approved, releases are unsigned and Windows may show an "unknown publisher" warning. This section will be updated when signing starts.
 - **Team roles:** author, reviewer and approver: [Ubaid Badar](https://github.com/ubaidbadar). Every release needs approval before it is signed.
 - **Privacy:** this app does not collect or send personal data. It talks only to the Restora API (to fetch the slips for this PC and report them printed) and to the printers on this PC, plus the Restora web app on this PC over `127.0.0.1`. It keeps its settings and a log of printed slips in `%APPDATA%\restora` and nothing else. The slips themselves contain the order details Restora sends, which are printed and not stored beyond that log of order keys.
-- **Uninstall:** quit it from the tray icon, turn off "Start with Windows" there, and delete the exe and the `%APPDATA%\restora` folder.
+- **Uninstall:** use Windows Settings → Apps → Installed apps to uninstall Restora Agent. It has no tray window; if you need to stop it first, end `restora-pc-agent.exe` from Task Manager. Keep `%APPDATA%\restora` to preserve settings and logs, or remove that folder after uninstalling.
 
 
 ## Integrated Windows setup (signed PWA + headless printing — candidate, NOT released)
