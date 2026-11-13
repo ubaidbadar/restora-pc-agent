@@ -11,14 +11,14 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Download MSIX artifact from run 43431854247
+      - name: Download MSIX artifact from run 43462710173
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 43431854247 --repo ubaidbadar/restora-pc-agent --name RestoraAgent-0.1.18.0-msix --dir msix
+          gh run download 43462710173 --repo ubaidbadar/restora-pc-agent --name RestoraAgent-0.1.19.0-msix --dir msix
           ls -l msix
-      - name: Upload MSIX to release v0.1.18
+      - name: Upload MSIX to release v0.1.19
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload v0.1.18 msix/RestoraAgent-0.1.18.0.msix --repo ubaidbadar/restora-pc-agent --clobber
+          gh release upload v0.1.19 msix/RestoraAgent-0.1.19.0.msix --repo ubaidbadar/restora-pc-agent --clobber
