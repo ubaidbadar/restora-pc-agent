@@ -5,12 +5,12 @@ use axum::{
     extract::{Request, State},
     http::{HeaderValue, StatusCode, header},
     middleware::{self, Next},
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub const ADDRESS: &str = "127.0.0.1:17777";
@@ -29,13 +29,12 @@ pub fn printer_settings_url() -> String {
     format!("{}/settings/printers", app_url())
 }
 
-/// Opens the setup page in the browser, so staff can type the pairing code. Elsewhere (development) it only logs where it is.
+/// Opens the Restora PWA's printer settings after the server revokes this PC's pairing.
 pub fn open_setup() {
-    let url = format!("http://{ADDRESS}");
     #[cfg(windows)]
-    crate::tray::open(&url);
+    crate::pwa::open(&app_url(), "/settings/printers");
     #[cfg(not(windows))]
-    tracing::info!("set this agent up at {url}");
+    tracing::info!("reconnect this agent in {}/settings/printers", app_url());
 }
 
 struct Local {
@@ -70,9 +69,8 @@ struct PairRequest {
     api: Option<String>,
 }
 
-/// `origins` are the pages allowed to call the agent (the Restora web app); the agent's own setup page is always one.
-pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
-    origins.push(format!("http://{ADDRESS}"));
+/// `origins` are the Restora web app pages allowed to call this loopback service.
+pub fn router(agent: Arc<Agent>, origins: Vec<String>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(
             origins.iter().filter_map(|o| HeaderValue::from_str(o).ok()),
@@ -84,7 +82,7 @@ pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
 
     let local = Arc::new(Local { agent, origins });
     Router::new()
-        .route("/", get(setup_page))
+        .route("/", get(status))
         .route("/setup/pair", post(pair))
         .route("/status", get(status))
         .route("/printers", get(list_printers))
@@ -122,13 +120,6 @@ async fn guard(State(local): State<Shared>, request: Request, next: Next) -> Res
     next.run(request).await
 }
 
-/// Where staff connect this PC: a button that opens Restora (which pairs it), or the pairing code typed in. Served by
-/// the agent itself, so no browser permission is needed. `RESTORA_APP` replaces the web app's address.
-async fn setup_page() -> Html<String> {
-    let page = include_str!("setup.html");
-    Html(page.replace("https://app.restora.live", &app_url()))
-}
-
 async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> Response {
     match local
         .agent
@@ -142,14 +133,9 @@ async fn pair(State(local): State<Shared>, Json(request): Json<PairRequest>) -> 
     }
 }
 
-/// Everything the setup page shows: connection, printers and the recent slips (see status.rs).
+/// A fast status snapshot built from cached state; it never enumerates Windows printers on the request thread.
 async fn status(State(local): State<Shared>) -> Json<crate::status::Snapshot> {
-    let agent = local.agent.clone();
-    Json(
-        tokio::task::spawn_blocking(move || crate::status::snapshot(&agent))
-            .await
-            .unwrap(),
-    )
+    Json(crate::status::snapshot(&local.agent))
 }
 
 /// The printers as staff set them in Restora (name, what each prints, paper), for the web app when it has no internet.
@@ -167,13 +153,23 @@ async fn config(State(local): State<Shared>) -> Json<serde_json::Value> {
 }
 
 async fn list_printers() -> Response {
-    match printers::list() {
-        Ok(names) => Json(json!(names)).into_response(),
-        Err(message) => (
+    match tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::task::spawn_blocking(printers::list),
+    ).await {
+        Ok(Ok(Ok(names))) => Json(json!(names)).into_response(),
+        Ok(Ok(Err(message))) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "message": message })),
-        )
-            .into_response(),
+        ).into_response(),
+        Ok(Err(error)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "message": error.to_string() })),
+        ).into_response(),
+        Err(_) => (
+            StatusCode::GATEWAY_TIMEOUT,
+            Json(json!({ "message": "Windows printer discovery timed out. Check the Windows Print Spooler and try again." })),
+        ).into_response(),
     }
 }
 
