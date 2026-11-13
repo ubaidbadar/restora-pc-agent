@@ -36,7 +36,13 @@ pub fn open() {
                 "if (Get-StartApps | Where-Object {{ $_.AppID -eq '{aumid}' }} | Select-Object -First 1) {{ exit 0 }}; exit 1"
             );
             let installed = Command::new("powershell.exe")
-                .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &query])
+                .args([
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    &query,
+                ])
                 .creation_flags(NO_WINDOW)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
