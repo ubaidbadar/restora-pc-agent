@@ -8,6 +8,8 @@ mod escpos;
 mod local;
 mod logo;
 mod printers;
+#[cfg(all(windows, not(feature = "store")))]
+mod pwa;
 mod slips;
 mod status;
 #[cfg(windows)]
@@ -92,6 +94,29 @@ fn main() {
     #[cfg(windows)]
     if let Some(parent) = embedded_pid {
         exit_with_parent(parent);
+    }
+
+    // Portable Windows builds can silently provision Restora as an Edge PWA.
+    // Do not touch Edge from the Electron-owned engine, or from a Store MSIX:
+    // MSIX virtualizes HKCU registry writes.
+    #[cfg(all(windows, not(feature = "store")))]
+    if embedded_pid.is_none() {
+        let args = std::env::args().collect::<Vec<_>>();
+        if args.iter().any(|arg| arg == "--remove-managed-pwa") {
+            if let Err(error) = pwa::configure(false) {
+                tracing::error!("unable to remove Restora PWA policy: {error}");
+            }
+            return;
+        }
+        if args.iter().any(|arg| arg == "--install-managed-pwa") {
+            if let Err(error) = pwa::configure(true) {
+                tracing::error!("unable to install Restora PWA policy: {error}");
+            }
+            return;
+        }
+        if let Err(error) = pwa::ensure_installed() {
+            tracing::warn!("Restora PWA provisioning skipped: {error}");
+        }
     }
     #[cfg(windows)]
     let interactive = embedded_pid.is_none() && !launched_at_startup();
