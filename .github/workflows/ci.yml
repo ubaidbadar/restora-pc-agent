@@ -21,6 +21,23 @@ jobs:
       - name: Verify Windows release candidate
         shell: pwsh
         run: ./scripts/verify-local.ps1 -Release
+      - name: Verify signed-PWA provisioning script fails closed
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $issues = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/provision-pwa.ps1').Path,
+            [ref]$tokens, [ref]$issues) | Out-Null
+          if ($issues.Count -gt 0) { throw "Invalid PowerShell syntax: $issues" }
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -File scripts/provision-pwa.ps1 `
+            -PackagePath "$env:RUNNER_TEMP\\missing.msix" `
+            -ExpectedSha256 ('0' * 64) `
+            -PackageName BadarDigital.RestoraTest `
+            -ExpectedPublisher CN=Test `
+            -ApplicationId App
+          if ($LASTEXITCODE -eq 0) { throw 'Missing signed PWA was incorrectly accepted' }
       - name: Smoke test built agent and loopback security on Windows
         shell: pwsh
         run: |
