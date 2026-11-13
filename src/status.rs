@@ -1,4 +1,4 @@
-//! What the setup page and the tray show: one honest summary built from facts the agent really has.
+//! What the local status endpoint reports: one honest summary built from facts the agent really has.
 //! Four separate layers are kept apart: this program (always running if this is answered), the connection to Restora,
 //! the printers Windows lists, and the last result of each slip. Windows cannot say whether a printer has paper or is
 //! powered, so "found in Windows" is never shown as "ready".
