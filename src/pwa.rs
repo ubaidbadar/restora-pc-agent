@@ -30,10 +30,12 @@ pub fn open() {
     if let Ok(contents) = std::fs::read_to_string(config::folder().join("pwa-aumid.txt")) {
         let aumid = contents.trim();
         if valid_aumid(aumid) {
-            // Get-StartApps is the supported Windows inventory for installed app IDs.
-            // Do not invoke a stale AUMID after a customer uninstalls the PWA.
+            // Check the current user's registered package, not Start Menu entries,
+            // which may lag behind a successful MSIX installation.
+            let (family, _) = aumid.split_once('!').expect("validated app identity");
+            let (name, _) = family.rsplit_once('_').expect("validated package family");
             let query = format!(
-                "if (Get-StartApps | Where-Object {{ $_.AppID -eq '{aumid}' }} | Select-Object -First 1) {{ exit 0 }}; exit 1"
+                "if (Get-AppxPackage -Name '{name}' | Where-Object {{ $_.PackageFamilyName -eq '{family}' }} | Select-Object -First 1) {{ exit 0 }}; exit 1"
             );
             let installed = Command::new("powershell.exe")
                 .args([
