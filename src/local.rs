@@ -25,10 +25,6 @@ pub fn app_url() -> String {
         .to_string()
 }
 
-pub fn printer_settings_url() -> String {
-    format!("{}/settings/printers", app_url())
-}
-
 /// Opens the Restora PWA's printer settings after the server revokes this PC's pairing.
 pub fn open_setup() {
     #[cfg(windows)]
