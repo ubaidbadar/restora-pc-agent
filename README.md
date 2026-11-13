@@ -73,9 +73,11 @@ validated. A customer must not install a self-signed package or a trust root.
 
 ```powershell
 cargo build --release --locked
+$version = ((cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages |
+    Where-Object name -eq 'restora-pc-agent' | Select-Object -First 1).version
 $msix = 'C:\signed\RestoraPwa.msix'
 $sha = (Get-FileHash -LiteralPath $msix -Algorithm SHA256).Hash
-iscc.exe /DAppVersion=1.0.0 /DPwaSource=$msix /DPwaSha256=$sha /DPwaPackageName=YOUR_VERIFIED_PWA_PACKAGE /DPwaPublisher="YOUR_VERIFIED_PUBLISHER" /DPwaApplicationId=YOUR_VERIFIED_APPLICATION_ID packaging/RestoraSetup.iss
+iscc.exe /DAppVersion=$version /DPwaSource=$msix /DPwaSha256=$sha /DPwaPackageName=YOUR_VERIFIED_PWA_PACKAGE /DPwaPublisher="YOUR_VERIFIED_PUBLISHER" /DPwaApplicationId=YOUR_VERIFIED_APPLICATION_ID packaging/RestoraSetup.iss
 ```
 
 The resulting `dist/Restora-Setup-<version>-x64.exe` **must also be signed**
