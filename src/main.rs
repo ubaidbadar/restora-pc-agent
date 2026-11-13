@@ -1,4 +1,4 @@
-// Release builds on Windows have no console window: the tray icon is the only thing shown.
+// The Windows agent runs without a console or a dedicated app window; Restora PWA is the user interface.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod agent;
@@ -13,7 +13,7 @@ mod pwa;
 mod slips;
 mod status;
 #[cfg(windows)]
-mod tray;
+mod startup;
 
 use std::sync::{Arc, Mutex};
 
@@ -95,12 +95,9 @@ fn main() {
     if let Some(parent) = embedded_pid {
         exit_with_parent(parent);
     }
-    // Opt-in until the signed PWA + single-installer has passed Windows acceptance.
-    // The existing Store and standalone printing behavior remains unchanged.
-    #[cfg(windows)]
-    let headless = embedded_pid.is_none() && std::env::args().any(|arg| arg == "--headless");
     #[cfg(windows)]
     let interactive = embedded_pid.is_none() && !launched_at_startup();
+
     // The Restora pages allowed to call the agent; RESTORA_ORIGINS (comma separated) replaces them.
     let origins = std::env::var("RESTORA_ORIGINS")
         .unwrap_or_else(|_| "https://app.restora.live,https://dev-app.restora.live,https://restora-live.web.app,https://restora-live.firebaseapp.com,https://restora-live-dev.web.app,https://restora-live-dev.firebaseapp.com,http://localhost:3000".to_string())
@@ -114,15 +111,14 @@ fn main() {
     let listener = match runtime.block_on(tokio::net::TcpListener::bind(local::ADDRESS)) {
         Ok(listener) => listener,
         Err(err) => {
-            // Most likely the agent is already running: open Restora instead of another agent window.
+            // The agent is already running: a second launch opens the existing Restora PWA instead of a browser tab.
             tracing::error!("cannot listen on {}: {err}", local::ADDRESS);
             #[cfg(windows)]
             if interactive {
-                if headless {
-                    pwa::open();
-                } else {
-                    tray::open(&local::printer_settings_url());
-                }
+                pwa::open(
+                    &local::app_url(),
+                    if config::load().is_some() { "/orders" } else { "/settings/printers" },
+                );
             }
             #[cfg(not(windows))]
             local::open_setup();
@@ -130,44 +126,32 @@ fn main() {
         }
     };
     tracing::info!("listening on http://{}", local::ADDRESS);
-    runtime.spawn(backend::run(agent.clone()));
     let paired = agent.paired();
-    #[cfg(windows)]
-    let agent_for_tray = agent.clone();
+    runtime.spawn(backend::run(agent.clone()));
     runtime.spawn(async move {
         axum::serve(listener, local::router(agent, origins))
             .await
             .unwrap()
     });
-    // Interactive launch opens Restora. Windows auto-start stays in the tray
-    // without opening a browser every time the employee signs in.
+
     #[cfg(windows)]
     if interactive {
-        if headless {
-            pwa::open();
-        } else if paired {
-            tray::open(&local::app_url());
-        } else {
-            tray::open(&local::printer_settings_url());
-        }
+        // Portable builds retain the user's existing Start-with-Windows opt-out. Store builds use StartupTask.
+        startup::ensure_autostart();
+        pwa::open(
+            &local::app_url(),
+            if paired { "/orders" } else { "/settings/printers" },
+        );
     }
     #[cfg(not(windows))]
     if !paired {
         local::open_setup();
     }
 
+    // The agent is a background printing service. The PWA is the only staff-facing application.
     #[cfg(windows)]
-    if embedded_pid.is_some() || headless {
-        // Electron remains parent-bound. The opt-in headless standalone process
-        // runs the same engine without a tray, local dashboard or browser on startup.
-        runtime.block_on(std::future::pending::<()>());
-    } else {
-        tray::run(
-            &format!("http://{}", local::ADDRESS),
-            &local::app_url(),
-            agent_for_tray,
-        );
-    }
+    runtime.block_on(std::future::pending::<()>());
+
     // Elsewhere (development) the agent runs until it is stopped.
     #[cfg(not(windows))]
     runtime.block_on(tokio::signal::ctrl_c()).ok();
