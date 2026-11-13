@@ -123,9 +123,11 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
         .as_ref()
         .and_then(|config| config.branch_id.clone());
     let online = agent.online.load(std::sync::atomic::Ordering::Relaxed);
-    let windows = printers::list().ok();
+    // An unpaired agent has no printers to report. Avoid calling Windows printer
+    // enumeration during disconnect/recovery, where a stale driver can hang it.
+    let windows = if paired { printers::list().ok() } else { None };
     let recent = agent.recent();
-    let configured = agent.printers();
+    let configured = if paired { agent.printers() } else { serde_json::json!([]) };
 
     let mut rows: Vec<PrinterRow> = Vec::new();
     for p in configured.as_array().into_iter().flatten() {
