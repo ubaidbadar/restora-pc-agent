@@ -64,7 +64,7 @@ begin
   { The Store version launches its own service. Block two listeners and
     require a deliberate, tested migration before installing this EXE. }
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-              '-NoLogo -NoProfile -NonInteractive -Command "if (Get-AppxPackage -Name ''BadarDigital.RestoraPrint'') { exit 31 }"',
+              '-NoLogo -NoProfile -NonInteractive -Command "if (Get-AppxPackage -Name ''BadarDigital.RestoraPrint'') { exit 31 }; if (Get-NetTCPConnection -LocalPort 17777 -State Listen -ErrorAction SilentlyContinue) { exit 32 }"',
               '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
     Result := 'Windows cannot check for the existing Store Agent.';
@@ -72,7 +72,7 @@ begin
   end;
   if ResultCode <> 0 then
   begin
-    Result := 'The Microsoft Store Restora Agent is already installed, or Windows could not check it. Migrate that installation before installing the standalone bundle.';
+    Result := 'Another Restora printing service is installed or port 17777 is already in use. Stop or migrate the existing Agent before setup; printing was left unchanged.';
     Exit;
   end;
   ExtractTemporaryFile('provision-pwa.ps1');
