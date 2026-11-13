@@ -16,7 +16,7 @@ pub fn ensure_autostart() {
         return;
     };
     let command = format!("\"{}\" --background", exe.display());
-    if key.get_value::<String, _>(RUN_NAME).is_err_or(|current| current != command) {
+    if key.get_value::<String, _>(RUN_NAME).ok().as_deref() != Some(command.as_str()) {
         let _ = key.set_value(RUN_NAME, &command);
     }
 }
