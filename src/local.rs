@@ -78,9 +78,9 @@ pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
             origins.iter().filter_map(|o| HeaderValue::from_str(o).ok()),
         ))
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
-        .allow_headers([header::CONTENT_TYPE])
-        // Current Chrome/Edge Local Network Access uses the loopback-network permission
-        // and standard CORS; the old Private Network Access response header is not needed.
+        .allow_headers([header::CONTENT_TYPE]);
+    // Current Chrome/Edge Local Network Access uses the loopback-network permission
+    // and standard CORS; the old Private Network Access response header is not needed.
 
     let local = Arc::new(Local { agent, origins });
     Router::new()
