@@ -144,11 +144,11 @@ fn main() {
     #[cfg(windows)]
     if interactive {
         if headless {
-            pwa::open();
+            pwa::open(&local::app_url());
         } else if paired {
             pwa::open(&local::app_url());
         } else {
-            tray::open(&local::printer_settings_url());
+            pwa::open(&local::printer_settings_url());
         }
     }
     #[cfg(not(windows))]
