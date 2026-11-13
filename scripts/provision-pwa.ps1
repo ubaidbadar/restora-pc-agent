@@ -41,7 +41,7 @@ $zip = [IO.Compression.ZipFile]::OpenRead($source)
 try {
     $entry = $zip.GetEntry('AppxManifest.xml')
     if ($null -eq $entry) { throw 'The MSIX does not contain AppxManifest.xml.' }
-    $reader = New-Object IO.StreamReader($entry.Open())
+    $reader = [System.IO.StreamReader]::new($entry.Open())
     try {
         [xml]$manifest = $reader.ReadToEnd()
     } finally {
@@ -50,7 +50,7 @@ try {
 } finally {
     $zip.Dispose()
 }
-$ns = New-Object Xml.XmlNamespaceManager($manifest.NameTable)
+$ns = [System.Xml.XmlNamespaceManager]::new($manifest.NameTable)
 $ns.AddNamespace('f', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
 $identity = $manifest.SelectSingleNode('/f:Package/f:Identity', $ns)
 $application = $manifest.SelectSingleNode('/f:Package/f:Applications/f:Application[@Id="' + $ApplicationId + '"]', $ns)
