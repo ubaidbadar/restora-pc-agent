@@ -13,7 +13,7 @@
 > signs it after Store certification). Product identity must match the
 > manifest exactly: Name `BadarDigital.RestoraPrint` (expected,
 > unconfirmed), Publisher `CN=72D821D7-890E-4CCA-94D2-675D84F355AA`,
-> Version `0.1.18.0`.
+> Version `0.1.19.0`.
 > Partner Center product: "Restora Print" (rename pending), Store ID
 > `9P6VNX5KVJL6`, In draft —
 > https://partner.microsoft.com/en-us/dashboard/products/9P6VNX5KVJL6/overview
