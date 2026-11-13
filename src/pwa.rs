@@ -1,9 +1,10 @@
-//! Launch the verified, packaged Restora PWA when installed for this Windows user.
-//! The provisioning step writes only the AUMID. We do not set browser policies,
-//! install extensions, bypass package signing, or fabricate an Edge app window.
-use crate::{config, local, tray};
+//! Launch Restora in its installed PWA window when available.
+//! Packaged PWAs use their verified AppUserModelID; Chrome/Edge PWAs use the standard web+restora
+//! protocol declared in the web app manifest. No undocumented browser command-line switches are used.
+use crate::config;
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
+use winreg::{RegKey, enums::HKEY_CLASSES_ROOT;
 
 const NO_WINDOW: u32 = 0x0800_0000;
 
@@ -26,7 +27,40 @@ fn valid_aumid(raw: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'.' | b'_' | b'-'))
 }
 
-pub fn open() {
+fn protocol_uri(path: &str) -> &'static str {
+    if path == "/settings/printers" {
+        "web+restora://settings"
+    } else {
+        "web+restora://orders"
+    }
+}
+
+fn protocol_handler_registered() -> bool {
+    RegKey::predef(HKEY_CLASSES_ROOT)
+        .open_subkey("web+restora")
+        .and_then(|key| key.get_raw_value("URL Protocol"))
+        .is_ok()
+}
+
+fn shell_open(target: &str) -> bool {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::{HSTRING, w};
+
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            &HSTRING::from(target),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
+    result.0 as isize > 32
+}
+
+pub fn open(app_url: &str, path: &str) {
     if let Ok(contents) = std::fs::read_to_string(config::folder().join("pwa-aumid.txt")) {
         let aumid = contents.trim();
         if valid_aumid(aumid) {
@@ -60,14 +94,23 @@ pub fn open() {
             }
         }
     }
-    // Fallback remains usable without a signed MSIX package, or after uninstall.
-    // The website itself never receives privileges from the native agent.
-    tray::open(&local::app_url());
+
+    // A browser-installed PWA registers this supported custom protocol in Windows.
+    // Windows/browser consent is required on first use; if no handler exists, do not show
+    // an Open With dialog: fall back directly to the normal HTTPS page and its install offer.
+    if protocol_handler_registered() && shell_open(protocol_uri(path)) {
+        return;
+    }
+
+    let url = format!("{}{}", app_url.trim_end_matches('/'), path);
+    if !shell_open(&url) {
+        tracing::warn!("could not open Restora at {url}");
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::valid_aumid;
+    use super::{protocol_uri, valid_aumid};
 
     #[test]
     fn accepts_only_packaged_app_ids() {
@@ -78,5 +121,12 @@ mod tests {
         assert!(!valid_aumid("Restora_x!App!Other"));
         assert!(!valid_aumid("Restora_x!';exit 0;#"));
         assert!(!valid_aumid("Restora_x!App/Other"));
+    }
+
+    #[test]
+    fn launches_only_allowlisted_pwa_destinations() {
+        assert_eq!(protocol_uri("/orders"), "web+restora://orders");
+        assert_eq!(protocol_uri("/settings/printers"), "web+restora://settings");
+        assert_eq!(protocol_uri("https://evil.example"), "web+restora://orders");
     }
 }
