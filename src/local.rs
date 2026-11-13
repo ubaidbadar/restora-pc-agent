@@ -79,8 +79,8 @@ pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
         ))
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
         .allow_headers([header::CONTENT_TYPE])
-        // Chrome asks first whether a public site may reach a private address; this says yes (only for the origins above).
-        .allow_private_network(true);
+        // Current Chrome/Edge Local Network Access uses the loopback-network permission
+        // and standard CORS; the old Private Network Access response header is not needed.
 
     let local = Arc::new(Local { agent, origins });
     Router::new()
