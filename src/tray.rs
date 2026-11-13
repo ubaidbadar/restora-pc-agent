@@ -1,7 +1,7 @@
 //! The tray icon: the only window the agent has. Windows only.
 #[cfg(not(feature = "store"))]
 use crate::config;
-use crate::{agent::Agent, status};
+use crate::{agent::Agent, pwa, status};
 use std::sync::Arc;
 #[cfg(not(feature = "store"))]
 use tray_icon::menu::CheckMenuItem;
@@ -128,7 +128,7 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
         }
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if event.id == *setup.id() {
-                open(app_url);
+                pwa::open(app_url);
             } else if event.id == *diagnostics.id() {
                 open(diagnostics_url);
             } else if event.id == *autostart.id() {
@@ -147,7 +147,7 @@ pub fn run(diagnostics_url: &str, app_url: &str, agent: Arc<Agent>) {
                 ..
             } = event
             {
-                open(app_url);
+                pwa::open(app_url);
             }
         }
         let text = summary(&status::snapshot(&agent));

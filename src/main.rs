@@ -118,11 +118,7 @@ fn main() {
             tracing::error!("cannot listen on {}: {err}", local::ADDRESS);
             #[cfg(windows)]
             if interactive {
-                if headless {
-                    pwa::open();
-                } else {
-                    tray::open(&local::printer_settings_url());
-                }
+                pwa::open(&local::app_url());
             }
             #[cfg(not(windows))]
             local::open_setup();
@@ -131,6 +127,7 @@ fn main() {
     };
     tracing::info!("listening on http://{}", local::ADDRESS);
     runtime.spawn(backend::run(agent.clone()));
+    #[cfg(not(windows))]
     let paired = agent.paired();
     #[cfg(windows)]
     let agent_for_tray = agent.clone();
@@ -143,13 +140,7 @@ fn main() {
     // without opening a browser every time the employee signs in.
     #[cfg(windows)]
     if interactive {
-        if headless {
-            pwa::open();
-        } else if paired {
-            tray::open(&local::app_url());
-        } else {
-            tray::open(&local::printer_settings_url());
-        }
+        pwa::open(&local::app_url());
     }
     #[cfg(not(windows))]
     if !paired {

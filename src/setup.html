@@ -87,8 +87,8 @@
 
   <section id="quick" class="card" hidden>
     <h2>Connect this PC to Restora</h2>
-    <p>Opens Restora in your browser. Sign in, allow it to reach this PC if the browser asks, and it connects by itself.</p>
-    <a class="button" id="open" href="https://app.restora.live/settings/printers" target="_blank" rel="noopener">Connect to Restora</a>
+    <p>Opens Restora. If its app is installed, it reuses that window; otherwise it opens in your browser. Sign in, allow access to this PC if asked, and it connects by itself.</p>
+    <a class="button" id="open" href="https://app.restora.live/settings/printers">Connect to Restora</a>
   </section>
 
   <details id="manual" class="card" hidden>
@@ -185,16 +185,23 @@
     }
   }
 
-  // Asks the agent every few seconds, so the page follows along: paired, offline, a printer unplugged, removed in Restora.
+  // Refreshes without overlapping requests. A stalled local status check must never leave "Checking…" forever.
+  let refreshing = false;
   async function refresh() {
+    if (refreshing) return;
+    refreshing = true;
     try {
-      show(await (await fetch('/status')).json());
+      const response = await fetch('/status', { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) throw new Error('Local status request failed');
+      show(await response.json());
     } catch {
-      show({ paired: false, version: '', printers: [], recent: [], headline: { tone: 'bad', title: 'Restora Agent is not running', detail: 'Open it again from the Start menu or the desktop icon.' } });
+      show({ paired: false, version: '', printers: [], recent: [], headline: { tone: 'bad', title: 'Restora Agent is not responding', detail: 'Check that Restora Agent is running, then refresh this page.' } });
       $('manual').hidden = true;
       $('form').hidden = true;
       $('quick').hidden = true;
       $('hint').hidden = true;
+    } finally {
+      refreshing = false;
     }
   }
 

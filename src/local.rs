@@ -25,10 +25,6 @@ pub fn app_url() -> String {
         .to_string()
 }
 
-pub fn printer_settings_url() -> String {
-    format!("{}/settings/printers", app_url())
-}
-
 /// Opens the setup page in the browser, so staff can type the pairing code. Elsewhere (development) it only logs where it is.
 pub fn open_setup() {
     let url = format!("http://{ADDRESS}");
@@ -78,9 +74,9 @@ pub fn router(agent: Arc<Agent>, mut origins: Vec<String>) -> Router {
             origins.iter().filter_map(|o| HeaderValue::from_str(o).ok()),
         ))
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
-        .allow_headers([header::CONTENT_TYPE])
-        // Chrome asks first whether a public site may reach a private address; this says yes (only for the origins above).
-        .allow_private_network(true);
+        .allow_headers([header::CONTENT_TYPE]);
+    // Current Chrome/Edge Local Network Access uses the loopback-network permission
+    // and standard CORS; the old Private Network Access response header is not needed.
 
     let local = Arc::new(Local { agent, origins });
     Router::new()
