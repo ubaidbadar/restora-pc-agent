@@ -1,7 +1,9 @@
-//! Launch Restora's installed PWA before falling back to a normal browser tab.
-use crate::{config, tray};
+//! Launch Restora in its installed PWA window when available.
+//! Packaged PWAs use their verified AppUserModelID; browser PWAs use the web+restora protocol.
+use crate::config;
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
+use winreg::{RegKey, enums::HKEY_CLASSES_ROOT};
 
 const NO_WINDOW: u32 = 0x0800_0000;
 
@@ -24,8 +26,7 @@ fn valid_aumid(raw: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'.' | b'_' | b'-'))
 }
 
-/// Start-menu AppIDs for Chrome/Edge PWAs are not package-family AUMIDs, but
-/// they are still opaque Windows identifiers. Accept only safe identifier bytes.
+/// Chrome/Edge Start-menu app IDs are opaque Windows identifiers, not package-family AUMIDs.
 fn valid_start_app_id(raw: &str) -> bool {
     !raw.is_empty()
         && raw.len() <= 180
@@ -43,7 +44,7 @@ fn launch_app_id(app_id: &str) -> bool {
             .is_ok()
 }
 
-/// The signed Restora PWA package, when provisioned by the single-installer release.
+/// Launch the signed Restora PWA package when it is provisioned for this Windows user.
 fn open_packaged_pwa() -> bool {
     let Ok(contents) = std::fs::read_to_string(config::folder().join("pwa-aumid.txt")) else {
         return false;
@@ -52,9 +53,6 @@ fn open_packaged_pwa() -> bool {
     if !valid_aumid(aumid) {
         return false;
     }
-
-    // Check the current user's registered package, not Start Menu entries,
-    // which may lag behind a successful MSIX installation.
     let (family, _) = aumid.split_once('!').expect("validated app identity");
     let (name, _) = family.rsplit_once('_').expect("validated package family");
     let query = format!(
@@ -77,9 +75,7 @@ fn open_packaged_pwa() -> bool {
     installed && launch_app_id(aumid)
 }
 
-/// Chrome and Edge register installed PWAs in the Windows Start menu. Get-StartApps
-/// returns the actual AppUserModelID, which launches the browser's own app shortcut
-/// with its original browser profile instead of opening the site's URL in a tab.
+/// Chrome and Edge register browser-installed PWAs in the Windows Start menu.
 fn browser_pwa_app_id() -> Option<String> {
     const QUERY: &str = r#"
 $apps = @(Get-StartApps | Where-Object {
@@ -118,22 +114,68 @@ exit 1
     valid_start_app_id(app_id).then(|| app_id.to_string())
 }
 
-/// Opens the installed PWA window if available; otherwise uses the normal browser URL.
-/// The focus-existing manifest policy keeps an active order screen from being navigated away.
-pub fn open(url: &str) {
-    if open_packaged_pwa() {
+fn protocol_uri(path: &str) -> Option<&'static str> {
+    match path {
+        "/orders" => Some("web+restora://orders"),
+        "/settings/printers" => Some("web+restora://settings"),
+        _ => None,
+    }
+}
+
+fn protocol_handler_registered() -> bool {
+    RegKey::predef(HKEY_CLASSES_ROOT)
+        .open_subkey("web+restora")
+        .and_then(|key| key.get_raw_value("URL Protocol"))
+        .is_ok()
+}
+
+fn shell_open(target: &str) -> bool {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::{HSTRING, w};
+
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            &HSTRING::from(target),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
+    result.0 as isize > 32
+}
+
+pub fn open(app_url: &str, path: &str) {
+    // Prefer the protocol even for a packaged PWA: it carries the requested route into the existing window.
+    if let Some(uri) = protocol_uri(path)
+        && protocol_handler_registered()
+        && shell_open(uri)
+    {
         return;
     }
-    if browser_pwa_app_id().is_some_and(|app_id| launch_app_id(&app_id)) {
-        return;
+
+    // Legacy installed apps do not understand the protocol yet. Their Start-menu entry is a safe
+    // fallback for the ordinary Orders launch; settings uses the HTTPS deep link below.
+    if path == "/orders" {
+        if open_packaged_pwa() {
+            return;
+        }
+        if browser_pwa_app_id().is_some_and(|app_id| launch_app_id(&app_id)) {
+            return;
+        }
     }
-    // No installed PWA (or more than one ambiguous profile): use the safe browser fallback.
-    tray::open(url);
+
+    let url = format!("{}{}", app_url.trim_end_matches('/'), path);
+    if !shell_open(&url) {
+        tracing::warn!("could not open Restora at {url}");
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{valid_aumid, valid_start_app_id};
+    use super::{protocol_uri, valid_aumid, valid_start_app_id};
 
     #[test]
     fn accepts_only_packaged_app_ids() {
@@ -154,5 +196,15 @@ mod tests {
         assert!(!valid_start_app_id("Restora PWA"));
         assert!(!valid_start_app_id("Restora;Start-Process powershell"));
         assert!(!valid_start_app_id("shell:AppsFolder\\Restora"));
+    }
+
+    #[test]
+    fn protocol_routes_are_allowlisted() {
+        assert_eq!(protocol_uri("/orders"), Some("web+restora://orders"));
+        assert_eq!(
+            protocol_uri("/settings/printers"),
+            Some("web+restora://settings")
+        );
+        assert_eq!(protocol_uri("https://evil.example"), None);
     }
 }

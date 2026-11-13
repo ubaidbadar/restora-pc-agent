@@ -1,8 +1,8 @@
-//! What the setup page and the tray show: one honest summary built from facts the agent really has.
+//! What the local status endpoint reports: one honest summary built from facts the agent really has.
 //! Four separate layers are kept apart: this program (always running if this is answered), the connection to Restora,
 //! the printers Windows lists, and the last result of each slip. Windows cannot say whether a printer has paper or is
 //! powered, so "found in Windows" is never shown as "ready".
-use crate::{agent::Agent, printers};
+use crate::{agent::Agent, config};
 use serde::Serialize;
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -42,6 +42,7 @@ pub struct PrinterRow {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub paired: bool,
+    pub reconnect_required: bool,
     pub branch_id: Option<String>,
     pub online: bool,
     pub version: &'static str,
@@ -58,6 +59,7 @@ pub fn headline(
     missing: usize,
     failing: usize,
     found: usize,
+    checked: bool,
 ) -> Headline {
     let (tone, title, detail) = if !paired {
         (
@@ -77,6 +79,12 @@ pub fn headline(
             "No printer is set up yet".to_string(),
             "In Restora, open Settings, then Printers, and choose what each printer prints."
                 .to_string(),
+        )
+    } else if !checked {
+        (
+            Tone::Neutral,
+            "Checking Windows printers".to_string(),
+            "Restora Agent is running. Printer discovery is still in progress; you can keep using Restora.".to_string(),
         )
     } else if missing > 0 {
         let what = if missing == 1 {
@@ -113,7 +121,7 @@ pub fn headline(
     }
 }
 
-/// Reads everything once. Cheap enough to call every few seconds; blocking, so async callers use `spawn_blocking`.
+/// Reads the agent's cached state only. This must stay fast: browsers and the local status page call it during setup.
 pub fn snapshot(agent: &Agent) -> Snapshot {
     let paired = agent.paired();
     let branch_id = agent
@@ -123,15 +131,10 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
         .as_ref()
         .and_then(|config| config.branch_id.clone());
     let online = agent.online.load(std::sync::atomic::Ordering::Relaxed);
-    // An unpaired agent has no printers to report. Avoid calling Windows printer
-    // enumeration during disconnect/recovery, where a stale driver can hang it.
-    let windows = if paired { printers::list().ok() } else { None };
+    let windows = agent.windows_printers();
+    let checked = windows.is_some();
     let recent = agent.recent();
-    let configured = if paired {
-        agent.printers()
-    } else {
-        serde_json::json!([])
-    };
+    let configured = agent.printers();
 
     let mut rows: Vec<PrinterRow> = Vec::new();
     for p in configured.as_array().into_iter().flatten() {
@@ -185,10 +188,11 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
     let found = used.iter().filter(|r| r.found == Some(true)).count();
     Snapshot {
         paired,
+        reconnect_required: config::reconnect_required(),
         branch_id,
         online,
         version: env!("CARGO_PKG_VERSION"),
-        headline: headline(paired, online, set_up, missing, failing, found),
+        headline: headline(paired, online, set_up, missing, failing, found, checked),
         printers: rows,
         recent,
     }
@@ -200,20 +204,28 @@ mod tests {
 
     #[test]
     fn never_good_without_internet_or_printers() {
-        assert_eq!(headline(false, false, 0, 0, 0, 0).tone, Tone::Neutral);
-        assert_eq!(headline(true, false, 2, 0, 0, 2).tone, Tone::Warn);
-        assert_eq!(headline(true, true, 0, 0, 0, 0).tone, Tone::Warn);
+        assert_eq!(
+            headline(false, false, 0, 0, 0, 0, false).tone,
+            Tone::Neutral
+        );
+        assert_eq!(headline(true, false, 2, 0, 0, 2, true).tone, Tone::Warn);
+        assert_eq!(headline(true, true, 0, 0, 0, 0, false).tone, Tone::Warn);
     }
 
     #[test]
     fn a_missing_or_failing_printer_is_bad_not_green() {
-        assert_eq!(headline(true, true, 2, 1, 0, 1).tone, Tone::Bad);
-        assert_eq!(headline(true, true, 2, 0, 1, 2).tone, Tone::Bad);
+        assert_eq!(headline(true, true, 2, 1, 0, 1, true).tone, Tone::Bad);
+        assert_eq!(headline(true, true, 2, 0, 1, 2, true).tone, Tone::Bad);
+    }
+
+    #[test]
+    fn printer_discovery_in_progress_is_never_reported_as_healthy() {
+        assert_eq!(headline(true, true, 2, 0, 0, 0, false).tone, Tone::Neutral);
     }
 
     #[test]
     fn good_only_when_every_layer_checks_out() {
-        let h = headline(true, true, 2, 0, 0, 2);
+        let h = headline(true, true, 2, 0, 0, 2, true);
         assert_eq!(h.tone, Tone::Good);
         assert!(h.detail.contains("2 printers are found"));
     }

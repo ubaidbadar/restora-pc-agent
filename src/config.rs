@@ -103,6 +103,19 @@ pub fn clear() {
     let _ = std::fs::remove_file(folder().join("agent.json"));
 }
 
+/// A server-side removal is deliberate. Keep this marker across restarts so the app does not silently re-pair.
+pub fn require_reconnect() {
+    let _ = std::fs::write(folder().join("reconnect-required"), "");
+}
+
+pub fn reconnect_required() -> bool {
+    folder().join("reconnect-required").exists()
+}
+
+pub fn clear_reconnect_required() {
+    let _ = std::fs::remove_file(folder().join("reconnect-required"));
+}
+
 #[cfg(windows)]
 mod dpapi {
     use std::{ffi::c_void, io, ptr};
