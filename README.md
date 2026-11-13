@@ -38,3 +38,68 @@ Release builds are made by GitHub Actions from this repository (`.github/workflo
 - **Team roles:** author, reviewer and approver: [Ubaid Badar](https://github.com/ubaidbadar). Every release needs approval before it is signed.
 - **Privacy:** this app does not collect or send personal data. It talks only to the Restora API (to fetch the slips for this PC and report them printed) and to the printers on this PC, plus the Restora web app on this PC over `127.0.0.1`. It keeps its settings and a log of printed slips in `%APPDATA%\restora` and nothing else. The slips themselves contain the order details Restora sends, which are printed and not stored beyond that log of order keys.
 - **Uninstall:** quit it from the tray icon, turn off "Start with Windows" there, and delete the exe and the `%APPDATA%\restora` folder.
+
+
+## Integrated Windows setup (signed PWA + headless printing — candidate, NOT released)
+
+The proposed single-EXE setup is \`packaging/RestoraSetup.iss\` (Inno Setup).
+It embeds **two separately built components**: the existing Rust print engine and
+a **genuine Microsoft Edge-hosted PWA MSIX generated using PWABuilder** for
+\`https://app.restora.live/\`. The PWA remains the only staff-facing window.
+The print engine runs without a tray or its old local diagnostics UI when invoked
+with \`--headless\`; \`--headless --background\` never opens a window.
+
+**This cannot be published yet.** The repository has *no production-signed
+Restora PWA MSIX, no verified PWA Partner Center identity, and no actual
+Windows 10/11 installation or printer acceptance result for this combination*.
+The current Store Agent package and portable \`restora.exe\` are unchanged.
+Do not publish or offer the integrated installer until these are supplied and
+validated. A customer must not install a self-signed package or a trust root.
+
+### How to build after the real PWA package is available
+
+1. Generate the **modern Microsoft Edge** PWA package from PWABuilder for
+   \`https://app.restora.live/\`. Reserve a **separate PWA package identity** in
+   Partner Center; do not reuse the Agent's \`BadarDigital.RestoraPrint\`
+   package identity. Sign the MSIX for direct distribution using a
+   publicly trusted signing certificate, or distribute through Microsoft
+   Store signing. The Store's unsigned submission MSIX is **not** a signed
+   direct-download installer.
+2. Record the exact MSIX \`Identity.Name\`, \`Identity.Publisher\`,
+   \`Application.Id\` and SHA-256 digest. They are verified **before** Windows
+   installs the PWA. Never pass dummy identity strings.
+3. Build the Rust agent using the existing verified Windows toolchain, and
+   compile \`packaging/RestoraSetup.iss\` with a current supported Inno Setup:
+
+\`\`\`powershell
+cargo build --release --locked
+$msix = 'C:\signed\RestoraPwa.msix'
+$sha = (Get-FileHash -LiteralPath $msix -Algorithm SHA256).Hash
+iscc.exe /DAppVersion=1.0.0 /DPwaSource=$msix /DPwaSha256=$sha /DPwaPackageName=YOUR_VERIFIED_PWA_PACKAGE /DPwaPublisher="YOUR_VERIFIED_PUBLISHER" /DPwaApplicationId=YOUR_VERIFIED_APPLICATION_ID packaging/RestoraSetup.iss
+\`\`\`
+
+The resulting \`dist/Restora-Setup-<version>-x64.exe\` **must also be signed**
+for production distribution. \`scripts/provision-pwa.ps1\` verifies the
+package hash and manifest identity, then uses Windows' supported
+\`Add-AppxPackage\` to install the **trusted, signed** MSIX for the current
+user. It writes the installed AppUserModelID to
+\`%APPDATA%\\restora\\pwa-aumid.txt\`. On manual launch, the headless agent
+checks \`Get-StartApps\` and launches that existing Windows app through
+\`shell:AppsFolder\`; if absent, the Restora website opens as a fallback.
+Windows startup launches the print engine silently.
+
+**Migration policy:** if a separately installed Edge/Chrome Restora PWA is
+detected, the provisioning script stops rather than creating a duplicate.
+The migration from a browser-installed PWA to the packaged PWA must be
+tested and supported before release. Existing Store Agent installations
+also need a tested migration to avoid simultaneous listeners on
+\`127.0.0.1:17777\`. Do not overwrite browser enterprise policies or use
+Chromium's undocumented PWA install command-line switches.
+
+**Release gates:** Windows 10/11, clean PCs, upgrading live Agent versions,
+Store/portable migration, existing PWAs, locked/running apps, failed
+signature and hash, interrupted installs, silent startup, local network
+permissions, branch isolation, offline queues, Electron's \`--embedded\`
+mode, USB/network printers, 58/80 mm slips and paper-out/retries. Also
+review installer uninstall behavior; the PWA remains installed unless the
+user uninstalls it separately. Merging code does not publish the setup.
