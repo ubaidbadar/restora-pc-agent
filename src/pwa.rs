@@ -149,10 +149,11 @@ fn shell_open(target: &str) -> bool {
 
 pub fn open(app_url: &str, path: &str) {
     // Prefer the protocol even for a packaged PWA: it carries the requested route into the existing window.
-    if let Some(uri) = protocol_uri(path) {
-        if protocol_handler_registered() && shell_open(uri) {
-            return;
-        }
+    if let Some(uri) = protocol_uri(path)
+        && protocol_handler_registered()
+        && shell_open(uri)
+    {
+        return;
     }
 
     // Legacy installed apps do not understand the protocol yet. Their Start-menu entry is a safe
