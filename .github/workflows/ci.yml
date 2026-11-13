@@ -83,6 +83,28 @@ jobs:
           } finally {
             Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue
           }
+      - name: Smoke test headless engine with no auto-start changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $before = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).RestoraPrintAgent
+          $engine = Start-Process -FilePath './target/release/restora-pc-agent.exe' -ArgumentList @('--headless', '--background') -PassThru -WindowStyle Hidden
+          try {
+            $healthy = $false
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+              Start-Sleep -Seconds 1
+              if ($engine.HasExited) { throw 'Headless print engine exited before becoming ready' }
+              try {
+                $status = Invoke-WebRequest 'http://127.0.0.1:17777/status' -TimeoutSec 2
+                if ($status.StatusCode -eq 200) { $healthy = $true; break }
+              } catch { }
+            }
+            if (-not $healthy) { throw 'Headless print engine did not become healthy' }
+            $after = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).RestoraPrintAgent
+            if ($before -ne $after) { throw 'Headless mode changed standalone startup settings' }
+          } finally {
+            Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue
+          }
       # The exe of every push and pull request, under the run's Artifacts (kept 30 days). Releases are made by tagging.
       - uses: actions/upload-artifact@v4
         with:
