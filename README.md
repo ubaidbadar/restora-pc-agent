@@ -12,6 +12,16 @@ A small Windows tray app that prints [Restora](https://restora.live) slips (kitc
 - **Offline:** on the same authorized branch and PC, Restora can submit slips through the protected `http://127.0.0.1:17777/print` endpoint when the internet is unavailable. Remote jobs remain queued on the backend until the agent reconnects.
 - **Status:** the tray and diagnostics distinguish disconnected backend, missing Windows printers, and failures. Windows spooler acceptance does not guarantee physical paper output.
 
+## Windows desktop PWA provisioning (portable build only)
+On a normal launch or Windows auto-start, the portable EXE registers [Restora](https://app.restora.live) in the **current Windows user's** Microsoft Edge `WebAppInstallForceList` policy. Edge installs the PWA silently when a supported Edge profile runs, creates its desktop shortcut, and launches it in a standalone window. The agent **does not bundle** a second browser or convert the website into another desktop runtime.
+
+- The installation is **best effort and asynchronous**: the policy takes effect when Edge refreshes it; the agent does not assume that a PWA has already installed or force-launch Edge. Check `edge://policy` for `WebAppInstallForceList` and `edge://apps` for the installed app.
+- Force-installed web apps are **managed** and cannot normally be uninstalled by the user while the policy is set. To opt out on the same Windows account, run `restora-pc-agent.exe --remove-managed-pwa` before deleting the EXE. This removes only Restora's entry and records a persistent opt-out in `%APPDATA%\\restora\\pwa-install.off`. To opt back in, run `restora-pc-agent.exe --install-managed-pwa`.
+- Existing Edge policy entries are preserved; invalid or unexpected registry data is left unchanged and logged. Provisioning failures **never block printers, pairing, or offline jobs**. Enterprise/device policies can override per-user settings, and Edge doesn't apply this policy to profiles signed into a personal Microsoft account.
+- The Microsoft Store **MSIX** build is deliberately excluded because packaged apps' HKCU writes can be virtualized. Its PWA needs a separate trusted deployment mechanism; do not assume this EXE feature works inside the Store package. The `--embedded` print engine is also excluded.
+- Installation of the PWA **does not grant browser local-network/loopback permissions**. Staff may still need to approve Restora's connection to the agent on `127.0.0.1:17777`.
+- The EXE logs provisioning errors to `%APPDATA%\\restora\\agent.log`. Test on a real Windows user profile with Edge (including fresh installations, updates, opt-out, and printer access) before release.
+
 ## Security and compatibility
 - The agent listens on **loopback only** (`127.0.0.1:17777`), requires the approved browser Origin for writes, and checks the paired restaurant branch and configured printer before offline printing. Chrome or Edge may ask for local network/loopback permission; this permission cannot be bypassed.
 - Agent bearer credentials are encrypted using Windows DPAPI in `%APPDATA%\\restora\\agent.json`; existing plaintext configs migrate when loaded.
