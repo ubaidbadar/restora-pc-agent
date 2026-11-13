@@ -42,12 +42,12 @@ pub struct Agent {
     /// Last successful Windows printer discovery; status requests never call the blocking spooler API.
     windows_printers: Mutex<Option<Vec<String>>>,
     pub http: reqwest::Client,
-    /// Whether the last call to Restora got through, for the setup page.
+    /// Whether the last call to Restora got through, for the local status endpoint.
     pub online: std::sync::atomic::AtomicBool,
     recent: Mutex<VecDeque<Recent>>,
 }
 
-/// How many results the setup page lists.
+/// How many results the local status endpoint lists.
 const RECENT: usize = 8;
 
 /// One slip's latest result, for the "Recent slips" list. Only kept while the program runs.
