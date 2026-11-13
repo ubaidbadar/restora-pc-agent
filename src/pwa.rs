@@ -98,7 +98,13 @@ exit 1
 "#;
 
     let output = Command::new("powershell.exe")
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", QUERY])
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            QUERY,
+        ])
         .creation_flags(NO_WINDOW)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
