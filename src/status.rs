@@ -127,7 +127,11 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
     // enumeration during disconnect/recovery, where a stale driver can hang it.
     let windows = if paired { printers::list().ok() } else { None };
     let recent = agent.recent();
-    let configured = if paired { agent.printers() } else { serde_json::json!([]) };
+    let configured = if paired {
+        agent.printers()
+    } else {
+        serde_json::json!([])
+    };
 
     let mut rows: Vec<PrinterRow> = Vec::new();
     for p in configured.as_array().into_iter().flatten() {
