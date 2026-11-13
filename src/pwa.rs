@@ -124,10 +124,8 @@ pub fn open(url: &str) {
     if open_packaged_pwa() {
         return;
     }
-    if let Some(app_id) = browser_pwa_app_id() {
-        if launch_app_id(&app_id) {
-            return;
-        }
+    if browser_pwa_app_id().is_some_and(|app_id| launch_app_id(&app_id)) {
+        return;
     }
     // No installed PWA (or more than one ambiguous profile): use the safe browser fallback.
     tray::open(url);
