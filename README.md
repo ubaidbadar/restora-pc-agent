@@ -5,7 +5,7 @@ A small Windows tray app that prints [Restora](https://restora.live) slips (kitc
 **Install:** [Restora Agent on Microsoft Store](https://apps.microsoft.com/detail/9p6vnx5kvjl6?hl=en-US&gl=PK). This repository also builds a separate portable executable for testing and legacy installations.
 
 ## How it works
-- **Open:** start Restora Agent from Windows; it opens the [Restora web app](https://app.restora.live) or the Printers settings if the PC has not yet connected. The tray icon opens Restora; **Agent diagnostics** opens the local status page.
+- **Open:** start Restora Agent from Windows; it looks for the installed Restora PWA in the Windows Start menu and launches that app window with its existing browser profile. If no unique installed PWA is found, it opens the website in the default browser. Clicking the tray icon or choosing **Open Restora** uses the same path; **Agent diagnostics** opens the local status page.
 - **Connect:** sign in to Restora, select the correct restaurant branch, and approve the browser's one-time permission to connect to apps on this computer. Restora passes a temporary backend-issued credential directly to the agent. Staff do **not** type a code in the normal setup. Advanced diagnostics retain manual connection for recovery.
 - **Sync:** the agent polls the authenticated backend for queued slips every two seconds and checks for changed printer configuration on the same connection. Windows printer discovery still runs every five minutes.
 - **Print:** kitchen tickets and receipts are submitted through the Windows spooler. A journal remembers accepted copies so automatic retries do not repeat previous copies after partial failures. Jobs for separate physical printers process independently.
@@ -17,7 +17,7 @@ A small Windows tray app that prints [Restora](https://restora.live) slips (kitc
 - Agent bearer credentials are encrypted using Windows DPAPI in `%APPDATA%\\restora\\agent.json`; existing plaintext configs migrate when loaded.
 - An old agent installation may not know its branch until reconnected. Avoid using the offline local-print path across branches until all PCs have upgraded and their branch identity is established.
 - The printer-copy journal is `%APPDATA%\\restora\\printed.log`. A crash between spooler acceptance and journal write can leave an ambiguous print; **do not promise exactly-once physical printing**.
-- On a Windows login auto-start, the app stays in the tray without opening a browser. Manual launch opens Restora.
+- On a Windows login auto-start, the app stays in the tray without opening a browser. Manual launch activates the installed PWA when available, rather than creating another browser tab. The PWA manifest uses focus-existing so an order already being entered is not navigated away.
 - Only release after testing real USB/network printers, 58/80mm, offline sync, paper-out, reboot, browser permission and Store MSIX upgrade. The Store app and portable build have different packaging and startup rules.
 
 ## Local server (127.0.0.1:17777)
