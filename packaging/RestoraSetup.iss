@@ -61,12 +61,12 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    MarkerPath := ExpandConstant('{userappdata}\\restora\\autostart.off');
+    MarkerPath := ExpandConstant('{userappdata}\restora\autostart.off');
     if WizardIsTaskSelected('autostart') then
       DeleteFile(MarkerPath)
     else
     begin
-      RegDeleteValue(HKCU, 'Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'RestoraPrintAgent');
+      RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'RestoraPrintAgent');
       ForceDirectories(ExtractFileDir(MarkerPath));
       SaveStringToFile(MarkerPath, '', False);
     end;
