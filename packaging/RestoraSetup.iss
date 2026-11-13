@@ -48,11 +48,11 @@ Source: "{#PwaSource}"; DestName: "RestoraPwa.msix"; Flags: dontcopy
 Source: "target\release\restora-pc-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RestoraPrintAgent"; ValueData: """{app}\restora-pc-agent.exe"" --headless --background"; Tasks: autostart; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RestoraPrintAgent"; ValueData: """{app}\restora-pc-agent.exe"" --background"; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\restora-pc-agent.exe"; Parameters: "--headless"; Flags: nowait skipifsilent
-Filename: "{app}\restora-pc-agent.exe"; Parameters: "--headless --background"; Flags: nowait skipifnotsilent
+Filename: "{app}\restora-pc-agent.exe"; Flags: nowait skipifsilent
+Filename: "{app}\restora-pc-agent.exe"; Parameters: "--background"; Flags: nowait skipifnotsilent
 
 [Code]
 function PrepareToInstall(var NeedsRestart: Boolean): String;
