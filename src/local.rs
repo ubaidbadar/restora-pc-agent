@@ -25,10 +25,6 @@ pub fn app_url() -> String {
         .to_string()
 }
 
-pub fn printer_settings_url() -> String {
-    format!("{}/settings/printers", app_url())
-}
-
 /// Opens the setup page in the browser, so staff can type the pairing code. Elsewhere (development) it only logs where it is.
 pub fn open_setup() {
     let url = format!("http://{ADDRESS}");
