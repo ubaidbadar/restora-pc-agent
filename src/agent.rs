@@ -251,11 +251,15 @@ impl Agent {
             return Err("This PC is already connected. Remove it from the original branch in Restora before reconnecting.".into());
         }
         let api = api_for(api)?;
+        let mut printer_discovery_completed = false;
         let windows_printers = match tokio::time::timeout(
             Duration::from_secs(5),
             tokio::task::spawn_blocking(printers::list),
         ).await {
-            Ok(Ok(Ok(names))) => names,
+            Ok(Ok(Ok(names))) => {
+                printer_discovery_completed = true;
+                names
+            },
             Ok(Ok(Err(error))) => {
                 tracing::warn!("could not discover Windows printers while pairing: {error}");
                 Vec::new()
@@ -269,7 +273,9 @@ impl Agent {
                 Vec::new()
             }
         };
-        self.set_windows_printers(windows_printers.clone());
+        if printer_discovery_completed {
+            self.set_windows_printers(windows_printers.clone());
+        }
         let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": windows_printers });
         let response = self
             .http
