@@ -11,9 +11,9 @@ mod printers;
 #[cfg(windows)]
 mod pwa;
 mod slips;
-mod status;
 #[cfg(windows)]
 mod startup;
+mod status;
 
 use std::sync::{Arc, Mutex};
 
@@ -117,7 +117,11 @@ fn main() {
             if interactive {
                 pwa::open(
                     &local::app_url(),
-                    if config::load().is_some() { "/orders" } else { "/settings/printers" },
+                    if config::load().is_some() {
+                        "/orders"
+                    } else {
+                        "/settings/printers"
+                    },
                 );
             }
             #[cfg(not(windows))]
@@ -140,7 +144,11 @@ fn main() {
         startup::ensure_autostart();
         pwa::open(
             &local::app_url(),
-            if paired { "/orders" } else { "/settings/printers" },
+            if paired {
+                "/orders"
+            } else {
+                "/settings/printers"
+            },
         );
     }
     #[cfg(not(windows))]

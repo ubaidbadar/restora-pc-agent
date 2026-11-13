@@ -255,11 +255,13 @@ impl Agent {
         let windows_printers = match tokio::time::timeout(
             Duration::from_secs(5),
             tokio::task::spawn_blocking(printers::list),
-        ).await {
+        )
+        .await
+        {
             Ok(Ok(Ok(names))) => {
                 printer_discovery_completed = true;
                 names
-            },
+            }
             Ok(Ok(Err(error))) => {
                 tracing::warn!("could not discover Windows printers while pairing: {error}");
                 Vec::new()
@@ -269,7 +271,9 @@ impl Agent {
                 Vec::new()
             }
             Err(_) => {
-                tracing::warn!("Windows printer discovery timed out while pairing; it will retry in the background");
+                tracing::warn!(
+                    "Windows printer discovery timed out while pairing; it will retry in the background"
+                );
                 Vec::new()
             }
         };

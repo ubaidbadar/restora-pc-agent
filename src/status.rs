@@ -204,7 +204,10 @@ mod tests {
 
     #[test]
     fn never_good_without_internet_or_printers() {
-        assert_eq!(headline(false, false, 0, 0, 0, 0, false).tone, Tone::Neutral);
+        assert_eq!(
+            headline(false, false, 0, 0, 0, 0, false).tone,
+            Tone::Neutral
+        );
         assert_eq!(headline(true, false, 2, 0, 0, 2, true).tone, Tone::Warn);
         assert_eq!(headline(true, true, 0, 0, 0, 0, false).tone, Tone::Warn);
     }

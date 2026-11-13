@@ -200,7 +200,10 @@ mod tests {
     #[test]
     fn protocol_routes_are_allowlisted() {
         assert_eq!(protocol_uri("/orders"), Some("web+restora://orders"));
-        assert_eq!(protocol_uri("/settings/printers"), Some("web+restora://settings"));
+        assert_eq!(
+            protocol_uri("/settings/printers"),
+            Some("web+restora://settings")
+        );
         assert_eq!(protocol_uri("https://evil.example"), None);
     }
 }

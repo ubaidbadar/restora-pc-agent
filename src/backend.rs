@@ -168,7 +168,8 @@ pub async fn run(agent: Arc<Agent>) {
             let discovered = tokio::time::timeout(
                 Duration::from_secs(5),
                 tokio::task::spawn_blocking(printers::list),
-            ).await;
+            )
+            .await;
             if let Ok(Ok(Ok(names))) = discovered {
                 agent.set_windows_printers(names.clone());
                 let result = agent
@@ -187,7 +188,9 @@ pub async fn run(agent: Arc<Agent>) {
                     tracing::warn!("{error}");
                 }
             } else {
-                tracing::warn!("Windows printer discovery failed or timed out; the agent will retry in five minutes");
+                tracing::warn!(
+                    "Windows printer discovery failed or timed out; the agent will retry in five minutes"
+                );
             }
         }
 
