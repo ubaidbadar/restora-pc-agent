@@ -43,15 +43,16 @@ WizardStyle=modern
 Name: "autostart"; Description: "Start background printing when signing in to Windows"; Flags: checkedonce
 
 [Files]
-Source: "target\release\restora-pc-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "scripts\provision-pwa.ps1"; Flags: dontcopy
 Source: "{#PwaSource}"; DestName: "RestoraPwa.msix"; Flags: dontcopy
+Source: "target\release\restora-pc-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RestoraPrintAgent"; ValueData: """{app}\restora-pc-agent.exe"" --headless --background"; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\restora-pc-agent.exe"; Parameters: "--headless"; Flags: nowait postinstall skipifsilent; Description: "Open Restora"
+Filename: "{app}\restora-pc-agent.exe"; Parameters: "--headless"; Flags: nowait skipifsilent
+Filename: "{app}\restora-pc-agent.exe"; Parameters: "--headless --background"; Flags: nowait skipifnotsilent
 
 [Code]
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -60,6 +61,20 @@ var
   Params: String;
 begin
   Result := '';
+  { The Store version launches its own service. Block two listeners and
+    require a deliberate, tested migration before installing this EXE. }
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+              '-NoLogo -NoProfile -NonInteractive -Command "if (Get-AppxPackage -Name ''BadarDigital.RestoraPrint'') { exit 31 }"',
+              '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Result := 'Windows cannot check for the existing Store Agent.';
+    Exit;
+  end;
+  if ResultCode <> 0 then
+  begin
+    Result := 'The Microsoft Store Restora Agent is already installed, or Windows could not check it. Migrate that installation before installing the standalone bundle.';
+    Exit;
+  end;
   ExtractTemporaryFile('provision-pwa.ps1');
   ExtractTemporaryFile('RestoraPwa.msix');
 
