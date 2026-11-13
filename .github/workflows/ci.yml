@@ -90,12 +90,12 @@ jobs:
           } finally {
             Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue
           }
-      - name: Smoke test headless engine with no auto-start changes
+      - name: Smoke test background engine with no auto-start changes
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $before = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).RestoraPrintAgent
-          $engine = Start-Process -FilePath './target/release/restora-pc-agent.exe' -ArgumentList @('--headless', '--background') -PassThru -WindowStyle Hidden
+          $engine = Start-Process -FilePath './target/release/restora-pc-agent.exe' -ArgumentList @('--background') -PassThru -WindowStyle Hidden
           try {
             $healthy = $false
             for ($attempt = 0; $attempt -lt 20; $attempt++) {
