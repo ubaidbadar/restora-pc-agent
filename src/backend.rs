@@ -162,7 +162,15 @@ pub async fn run(agent: Arc<Agent>) {
         let url = format!("{}/print-agent", config.api);
 
         if reported.elapsed() >= REPORT_PRINTERS {
-            if let Ok(names) = printers::list() {
+            // Printer enumeration can block inside Windows/driver APIs. Keep it off the async runtime and bound the
+            // wait; status and print-job polling must remain responsive even when a driver is unhealthy.
+            reported = Instant::now();
+            let discovered = tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio::task::spawn_blocking(printers::list),
+            ).await;
+            if let Ok(Ok(Ok(names))) = discovered {
+                agent.set_windows_printers(names.clone());
                 let result = agent
                     .http
                     .put(format!("{url}/printers"))
@@ -174,15 +182,12 @@ pub async fn run(agent: Arc<Agent>) {
                     .await;
                 if let Ok(Ok(answer)) = result.map(|response| response.error_for_status())
                     && let Ok(body) = answer.json::<serde_json::Value>().await
+                    && let Err(error) = agent.set_printers(body["printers"].clone())
                 {
-                    if let Err(error) = agent.set_printers(body["printers"].clone()) {
-                        tracing::warn!("{error}");
-                    } else {
-                        reported = Instant::now();
-                    }
+                    tracing::warn!("{error}");
                 }
             } else {
-                reported = Instant::now();
+                tracing::warn!("Windows printer discovery failed or timed out; the agent will retry in five minutes");
             }
         }
 
