@@ -14,6 +14,8 @@ pub struct Order {
     #[serde(default)]
     pub discount: f64,
     #[serde(default)]
+    pub service_charge: f64,
+    #[serde(default)]
     pub tax_rate: f64,
     #[serde(default)]
     pub tax: f64,
@@ -363,6 +365,9 @@ pub fn receipt(order: &Order, header: &Header, width: usize) -> Vec<u8> {
     if order.discount > 0.0 {
         p.pair("Discount", &format!("- {}", rs(order.discount)));
     }
+    if order.service_charge > 0.0 {
+        p.pair("Service charge", &rs(order.service_charge));
+    }
     if order.payment_method.is_some() {
         p.pair(&format!("Tax ({}%)", order.tax_rate), &rs(order.tax));
     } else {
@@ -440,6 +445,22 @@ mod tests {
             }
         }
         String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn customer_receipt_prints_service_charge_before_tax() {
+        let order: Order = serde_json::from_value(serde_json::json!({
+            "dailyToken": 13, "type": "dine_in", "tableName": "T2", "createdAt": "2026-11-13T10:00:00Z",
+            "subtotal": 1000, "discount": 0, "serviceCharge": 100, "taxRate": 16, "tax": 176,
+            "total": 1276, "paymentStatus": "paid", "paymentMethod": "cash",
+            "items": [{ "name": "Burger", "qty": 1, "price": 1000 }]
+        })).unwrap();
+        let slip = text(&receipt(&order, &Header::default(), 48));
+        assert!(slip.contains("Service charge"));
+        assert!(slip.contains("Rs 100"));
+        assert!(slip.contains("Tax (16%)"));
+        assert!(slip.contains("Rs 176"));
+        assert!(slip.contains("Rs 1,276"));
     }
 
     #[test]
