@@ -95,7 +95,6 @@ fn main() {
     if let Some(parent) = embedded_pid {
         exit_with_parent(parent);
     }
-    #[cfg(windows)]
     // Opt-in until the signed PWA + single-installer has passed Windows acceptance.
     // The existing Store and standalone printing behavior remains unchanged.
     #[cfg(windows)]
