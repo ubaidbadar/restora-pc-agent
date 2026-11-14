@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo test
+      - run: cargo test --locked
+      - run: cargo build --locked
+      - name: Exercise real loopback HTTP boundaries with isolated profiles
+        run: python3 scripts/smoke-local.py target/debug/restora-pc-agent
 
   windows:
     runs-on: windows-latest

@@ -21,7 +21,11 @@ be confirmed without their logs and Windows reproduction.
 
 Run `scripts/verify-local.ps1 -Release` on Windows with Rust stable/MSVC.
 It checks formatting, warning-free clippy and tests for portable and Store
-configurations, then builds the portable release executable. CI additionally
+configurations, then builds the portable release executable.
+Linux CI also runs `python3 scripts/smoke-local.py target/debug/restora-pc-agent`
+against a real subprocess with temporary paired/unpaired profiles, testing
+status/version, credential secrecy, Host and Origin enforcement, CORS private
+network preflight and cross-branch rejection without submitting a print. CI additionally
 checks loopback readiness, originless write rejection, background startup and
 embedded lifetime setup. The embedded registry assertion now reads the actual
 RestoraPrintAgent key.
