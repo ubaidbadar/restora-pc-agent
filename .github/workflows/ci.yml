@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - run: cargo test --locked
       - run: cargo build --locked
       - name: Exercise real loopback HTTP boundaries with isolated profiles
@@ -19,6 +22,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       # The same Windows release gate maintainers run locally: formatting,
       # clippy, unit/integration tests (including DPAPI), then release build.
       - name: Verify Windows release candidate

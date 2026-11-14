@@ -73,10 +73,10 @@ fn launched_at_startup() -> bool {
     #[cfg(feature = "store")]
     {
         // Packaged desktop apps expose an explicit StartupTask activation kind.
-        if let Ok(activation) = windows::ApplicationModel::AppInstance::GetActivatedEventArgs() {
-            if let Ok(kind) = activation.Kind() {
-                return kind == windows::ApplicationModel::Activation::ActivationKind::StartupTask;
-            }
+        if let Ok(activation) = windows::ApplicationModel::AppInstance::GetActivatedEventArgs()
+            && let Ok(kind) = activation.Kind()
+        {
+            return kind == windows::ApplicationModel::Activation::ActivationKind::StartupTask;
         }
     }
     false
