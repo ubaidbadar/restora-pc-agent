@@ -70,7 +70,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $before = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).'Restora Agent'
+          $before = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).RestoraPrintAgent
           $engine = Start-Process -FilePath './target/release/restora-pc-agent.exe' -ArgumentList @('--embedded', '--parent-pid', "$PID") -PassThru -WindowStyle Hidden
           try {
             $healthy = $false
@@ -85,7 +85,7 @@ jobs:
             if (-not $healthy) { throw 'Embedded engine did not expose local status' }
             $forbidden = Invoke-WebRequest 'http://127.0.0.1:17777/print' -Method POST -Body '{}' -ContentType 'application/json' -SkipHttpErrorCheck
             if ($forbidden.StatusCode -ne 403) { throw "Originless print was not forbidden: $($forbidden.StatusCode)" }
-            $after = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).'Restora Agent'
+            $after = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).RestoraPrintAgent
             if ($before -ne $after) { throw 'Embedded engine changed standalone autostart registry entry' }
           } finally {
             Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue

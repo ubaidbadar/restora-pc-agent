@@ -2,6 +2,11 @@ name: Publish MSIX to release
 
 on:
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful MSIX workflow run for the reviewed v0.1.21 source
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,14 +16,18 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Download MSIX artifact from run 43630819838
+      - name: Download the explicitly verified MSIX run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          test "$(gh api "repos/ubaidbadar/restora-pc-agent/actions/runs/$RUN_ID" --jq .conclusion)" = success
+          test "$(gh api "repos/ubaidbadar/restora-pc-agent/actions/runs/$RUN_ID" --jq .path)" = .github/workflows/msix.yml
+          release_sha=$(gh api repos/ubaidbadar/restora-pc-agent/commits/v0.1.21 --jq .sha)
+          test "$(gh api "repos/ubaidbadar/restora-pc-agent/actions/runs/$RUN_ID" --jq .head_sha)" = "$release_sha"
+          gh run download "$RUN_ID" --repo ubaidbadar/restora-pc-agent --name RestoraAgent-0.1.21.0-msix --dir msix
+      - name: Upload MSIX to release v0.1.21
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 43630819838 --repo ubaidbadar/restora-pc-agent --name RestoraAgent-0.1.20.0-msix --dir msix
-          ls -l msix
-      - name: Upload MSIX to release v0.1.20
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload v0.1.20 msix/RestoraAgent-0.1.20.0.msix --repo ubaidbadar/restora-pc-agent --clobber
+          gh release upload v0.1.21 msix/RestoraAgent-0.1.21.0.msix --repo ubaidbadar/restora-pc-agent

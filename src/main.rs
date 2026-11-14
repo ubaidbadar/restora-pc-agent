@@ -5,6 +5,7 @@ mod agent;
 mod backend;
 mod config;
 mod escpos;
+mod launch;
 mod local;
 mod logo;
 mod printers;
@@ -91,6 +92,11 @@ fn main() {
         }
     };
     start_logging();
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "Restora Agent starting"
+    );
+    std::panic::set_hook(Box::new(|info| tracing::error!("agent panic: {info}")));
     #[cfg(windows)]
     if let Some(parent) = embedded_pid {
         exit_with_parent(parent);

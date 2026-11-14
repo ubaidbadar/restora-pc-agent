@@ -141,6 +141,7 @@ async fn attempt(
         .json(&report)
         .send()
         .await
+        .and_then(reqwest::Response::error_for_status)
     {
         tracing::warn!("cannot report print job {job_id} to Restora: {error}");
     }
@@ -247,8 +248,13 @@ pub async fn run(agent: Arc<Agent>) {
                 printer_revision = revision;
             }
         }
-        let Ok(jobs) = response.json::<Vec<Job>>().await else {
-            continue;
+        let jobs = match response.json::<Vec<Job>>().await {
+            Ok(jobs) => jobs,
+            Err(error) => {
+                agent.online.store(false, Ordering::Relaxed);
+                tracing::warn!("invalid print jobs response: {error}");
+                continue;
+            }
         };
 
         for job in oldest_per_printer(jobs) {
