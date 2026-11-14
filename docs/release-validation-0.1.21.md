@@ -6,7 +6,9 @@
   Its AppID passed the old generic validator. With no protocol/PWA installed,
   a paired agent could launch itself through AppsFolder. Repeated launches hit
   the occupied port and enter the same launcher again.
-- Synchronous PowerShell lookups had no deadline.
+- Synchronous PowerShell lookups had no deadline. Shell launch did not initialize
+  COM as required by some shell extensions; dispatch now uses a dedicated STA
+  thread and ShellExecuteExW with SEE_MASK_NOASYNC before the thread exits.
 - EndPagePrinter and EndDocPrinter failures were ignored before journaling
   success. Failed/partial submissions now request AbortPrinter.
 - HTTP 4xx/5xx job-result reports were treated as successful sends; malformed
@@ -22,7 +24,7 @@ be confirmed without their logs and Windows reproduction.
 Run `scripts/verify-local.ps1 -Release` on Windows with Rust stable/MSVC.
 It checks formatting, warning-free clippy and tests for portable and Store
 configurations, then builds the portable release executable.
-Linux CI also runs `python3 scripts/smoke-local.py target/debug/restora-pc-agent`
+Linux and Windows CI also run `python3 scripts/smoke-local.py target/debug/restora-pc-agent`
 against a real subprocess with temporary paired/unpaired profiles, testing
 status/version, credential secrecy, Host and Origin enforcement, CORS private
 network preflight and cross-branch rejection without submitting a print. CI additionally
@@ -68,6 +70,9 @@ Do not infer physical printing or Store upgrade success from unit tests.
   stable toolchain for local checks is Rust 1.100.0.
 - [ShellExecuteW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew):
   success is a value greater than 32; dispatch does not establish browser UI state.
+- [ShellExecuteExW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecuteexw)
+  and [SHELLEXECUTEINFOW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shellexecuteinfow):
+  initialize COM; use SEE_MASK_NOASYNC when the calling thread has no message loop.
 - [EndDocPrinter](https://learn.microsoft.com/en-us/windows/win32/printdocs/enddocprinter):
   a zero return is failure and spooler calls can block.
 - [Edge WebAppInstallForceList](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-browser-policies/webappinstallforcelist):

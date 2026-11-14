@@ -131,21 +131,43 @@ fn protocol_handler_registered() -> bool {
 }
 
 fn shell_open(target: &str) -> bool {
-    use windows::Win32::UI::Shell::ShellExecuteW;
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    use windows::core::{HSTRING, w};
+    // Shell extensions can require STA COM. Use a fresh thread so calls from
+    // Tokio workers and Store activation do not inherit an incompatible apartment.
+    let target = target.to_string();
+    std::thread::spawn(move || unsafe {
+        use windows::Win32::System::Com::{
+            COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
+        };
+        use windows::Win32::UI::Shell::{
+            SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        use windows::core::{HSTRING, PCWSTR, w};
 
-    let result = unsafe {
-        ShellExecuteW(
-            None,
-            w!("open"),
-            &HSTRING::from(target),
-            None,
-            None,
-            SW_SHOWNORMAL,
-        )
-    };
-    result.0 as isize > 32
+        let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        if initialized.is_err() {
+            tracing::error!("cannot initialize shell COM apartment: {initialized:?}");
+            return false;
+        }
+        let target = HSTRING::from(target);
+        let mut info = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            // No message loop lives on this worker: finish dispatch before it exits.
+            fMask: SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI,
+            lpVerb: w!("open"),
+            lpFile: PCWSTR(target.as_ptr()),
+            nShow: SW_SHOWNORMAL.0,
+            ..Default::default()
+        };
+        let result = ShellExecuteExW(&mut info);
+        CoUninitialize();
+        if let Err(error) = &result {
+            tracing::warn!("Windows shell launch failed: {error}");
+        }
+        result.is_ok()
+    })
+    .join()
+    .unwrap_or(false)
 }
 
 pub fn open(app_url: &str, path: &str) {

@@ -121,6 +121,9 @@ jobs:
           } finally {
             Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue
           }
+      - name: Exercise paired and unpaired HTTP boundaries on Windows
+        shell: pwsh
+        run: python scripts/smoke-local.py target/release/restora-pc-agent.exe
       # The exe of every push and pull request, under the run's Artifacts (kept 30 days). Releases are made by tagging.
       - uses: actions/upload-artifact@v4
         with:
