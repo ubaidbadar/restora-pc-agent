@@ -8,7 +8,8 @@ use winreg::{RegKey, enums::HKEY_CLASSES_ROOT};
 const NO_WINDOW: u32 = 0x0800_0000;
 
 fn valid_aumid(raw: &str) -> bool {
-    if raw.len() > 180 || !raw.is_ascii() {
+    // The provisioned PWA must have its own package identity, never the agent's.
+    if raw.starts_with("BadarDigital.RestoraPrint_") || raw.len() > 180 || !raw.is_ascii() {
         return false;
     }
     let Some((family, app)) = raw.split_once('!') else {
@@ -252,6 +253,9 @@ mod tests {
         assert!(valid_aumid("BadarDigital.Restora_8wekyb3d8bbwe!App"));
         assert!(!valid_aumid(""));
         assert!(!valid_aumid("Restora"));
+        assert!(!valid_aumid(
+            "BadarDigital.RestoraPrint_publisher!RestoraAgent"
+        ));
         assert!(!valid_aumid("Restora!App"));
         assert!(!valid_aumid("Restora_x!App!Other"));
         assert!(!valid_aumid("Restora_x!';exit 0;#"));
