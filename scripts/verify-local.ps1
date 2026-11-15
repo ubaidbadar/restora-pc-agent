@@ -15,6 +15,8 @@ try {
     Invoke-Cargo -Arguments @('fmt', '--all', '--', '--check')
     Invoke-Cargo -Arguments @('clippy', '--all-targets', '--locked', '--', '-D', 'warnings')
     Invoke-Cargo -Arguments @('test', '--locked')
+    Invoke-Cargo -Arguments @('clippy', '--all-targets', '--locked', '--features', 'store', '--', '-D', 'warnings')
+    Invoke-Cargo -Arguments @('test', '--locked', '--features', 'store')
 
     if ($Release) {
         if (-not $IsWindows) { throw 'Release binaries for this agent must be built and tested on Windows.' }

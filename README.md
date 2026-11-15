@@ -32,7 +32,7 @@ cargo test                                     # slip tests
 cargo run                                      # runs on Linux too; printing only works on Windows
 cargo build --release --target x86_64-pc-windows-msvc
 ```
-`test/index.html` calls the local server from a browser page. Public portable releases are manual through `.github/workflows/release.yml` until the Windows Agent passes its release verification. A maintainer triggers the workflow after validation; the next patch version is selected by default, or `#minor` / `#major` in the latest commit message changes versioning. With the R2 secrets set, the exe is also uploaded to the Cloudflare bucket (see the top of the workflow).
+`test/index.html` calls the local server from a browser page. Public portable releases are manual through `.github/workflows/release.yml` until the Windows Agent passes its release verification. A maintainer triggers the workflow after validation; the version is read from Cargo.toml after portable and Store checks pass. Bump Cargo.toml, Cargo.lock, the Store manifest and MSIX workflow together before release. With the R2 secrets set, the exe is also uploaded to the Cloudflare bucket (see the top of the workflow).
 
 ## Code signing policy
 Release builds are made by GitHub Actions from this repository (`.github/workflows/release.yml`), so a signature confirms that the exe is an automated build of the source code here.
@@ -105,3 +105,26 @@ permissions, branch isolation, offline queues, Electron's `--embedded`
 mode, USB/network printers, 58/80 mm slips and paper-out/retries. Also
 review installer uninstall behavior; the PWA remains installed unless the
 user uninstalls it separately. Merging code does not publish the setup.
+
+## 0.1.21 launch recovery candidate
+
+This fixes a Start-menu lookup that could mistake **Restora Agent** for the PWA
+and repeatedly launch the printing agent. Browser fallback now accepts only
+Chrome/Edge app IDs; ambiguous or missing PWAs open the HTTPS site. Each
+PowerShell discovery query has a three-second deadline. Failed HTTPS shell
+launches display the URL and log location. Startup and launch dispatches are
+logged in `%APPDATA%\restora\agent.log`.
+
+The agent also checks both EndPagePrinter and EndDocPrinter before recording
+spooler acceptance, aborts incomplete jobs, and logs rejected backend result
+reports and malformed job responses. Spooler acceptance still does not prove
+physical output.
+
+Background installation of a browser PWA is not implemented. On unmanaged PCs,
+use the web app's Edge/Chrome Install action; managed Edge deployments can use
+Microsoft's WebAppInstallForceList policy. The separate signed-MSIX provisioning
+path above still needs the genuine signed PWA artifact. This candidate must not
+be described as restoring unattended PWA installation.
+
+See [release validation](docs/release-validation-0.1.21.md) for automated coverage,
+remaining real-device checks and the official sources used for this repair.

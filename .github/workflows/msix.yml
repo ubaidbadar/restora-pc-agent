@@ -14,11 +14,8 @@ name: MSIX
 # The "Verify Store identity" step checks Publisher + version exactly
 # and rejects stale/placeholder Identity Names, but only warns (does
 # not fail) if the Identity Name is not yet the expected confirmed one. This workflow deliberately does NOT use
-# scripts/build-store.ps1: that script derives the version from Cargo.toml
-# (currently 0.1.0, which it rejects) and rewrites the manifest from
-# parameters. The Store version is tracked in the manifest instead.
-# Cargo.toml's version is left untouched (release.yml rewrites it
-# in-build only for the standalone exe release).
+# scripts/build-store.ps1: that script rewrites the manifest from parameters.
+# The Store version here must match the manifest and Cargo.toml.
 
 on:
   pull_request:
@@ -37,8 +34,8 @@ permissions:
   contents: read
 
 env:
-  MSIX_VERSION: 0.1.20.0
-  PACKAGE_NAME: RestoraAgent-0.1.20.0.msix
+  MSIX_VERSION: 0.1.21.0
+  PACKAGE_NAME: RestoraAgent-0.1.21.0.msix
 
 jobs:
   msix:
@@ -112,6 +109,6 @@ jobs:
       - name: Upload the MSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RestoraAgent-0.1.20.0-msix
-          path: RestoraAgent-0.1.20.0.msix
+          name: RestoraAgent-0.1.21.0-msix
+          path: RestoraAgent-0.1.21.0.msix
           if-no-files-found: error

@@ -10,12 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo test
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo test --locked
+      - run: cargo build --locked
+      - name: Exercise real loopback HTTP boundaries with isolated profiles
+        run: python3 scripts/smoke-local.py target/debug/restora-pc-agent
 
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       # The same Windows release gate maintainers run locally: formatting,
       # clippy, unit/integration tests (including DPAPI), then release build.
       - name: Verify Windows release candidate
@@ -70,7 +79,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $before = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).'Restora Agent'
+          $before = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).RestoraPrintAgent
           $engine = Start-Process -FilePath './target/release/restora-pc-agent.exe' -ArgumentList @('--embedded', '--parent-pid', "$PID") -PassThru -WindowStyle Hidden
           try {
             $healthy = $false
@@ -85,7 +94,7 @@ jobs:
             if (-not $healthy) { throw 'Embedded engine did not expose local status' }
             $forbidden = Invoke-WebRequest 'http://127.0.0.1:17777/print' -Method POST -Body '{}' -ContentType 'application/json' -SkipHttpErrorCheck
             if ($forbidden.StatusCode -ne 403) { throw "Originless print was not forbidden: $($forbidden.StatusCode)" }
-            $after = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).'Restora Agent'
+            $after = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).RestoraPrintAgent
             if ($before -ne $after) { throw 'Embedded engine changed standalone autostart registry entry' }
           } finally {
             Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue
@@ -112,6 +121,9 @@ jobs:
           } finally {
             Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue
           }
+      - name: Exercise paired and unpaired HTTP boundaries on Windows
+        shell: pwsh
+        run: python scripts/smoke-local.py target/release/restora-pc-agent.exe
       # The exe of every push and pull request, under the run's Artifacts (kept 30 days). Releases are made by tagging.
       - uses: actions/upload-artifact@v4
         with:

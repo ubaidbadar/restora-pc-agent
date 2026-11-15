@@ -5,6 +5,7 @@ mod agent;
 mod backend;
 mod config;
 mod escpos;
+mod launch;
 mod local;
 mod logo;
 mod printers;
@@ -72,10 +73,10 @@ fn launched_at_startup() -> bool {
     #[cfg(feature = "store")]
     {
         // Packaged desktop apps expose an explicit StartupTask activation kind.
-        if let Ok(activation) = windows::ApplicationModel::AppInstance::GetActivatedEventArgs() {
-            if let Ok(kind) = activation.Kind() {
-                return kind == windows::ApplicationModel::Activation::ActivationKind::StartupTask;
-            }
+        if let Ok(activation) = windows::ApplicationModel::AppInstance::GetActivatedEventArgs()
+            && let Ok(kind) = activation.Kind()
+        {
+            return kind == windows::ApplicationModel::Activation::ActivationKind::StartupTask;
         }
     }
     false
@@ -91,6 +92,11 @@ fn main() {
         }
     };
     start_logging();
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "Restora Agent starting"
+    );
+    std::panic::set_hook(Box::new(|info| tracing::error!("agent panic: {info}")));
     #[cfg(windows)]
     if let Some(parent) = embedded_pid {
         exit_with_parent(parent);

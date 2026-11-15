@@ -38,8 +38,8 @@ pub fn list() -> Result<Vec<String>, String> {
 #[cfg(windows)]
 pub fn print_raw(printer: &str, bytes: &[u8]) -> Result<(), String> {
     use windows::Win32::Graphics::Printing::{
-        ClosePrinter, DOC_INFO_1W, EndDocPrinter, EndPagePrinter, OpenPrinterW, PRINTER_HANDLE,
-        StartDocPrinterW, StartPagePrinter, WritePrinter,
+        AbortPrinter, ClosePrinter, DOC_INFO_1W, EndDocPrinter, EndPagePrinter, OpenPrinterW,
+        PRINTER_HANDLE, StartDocPrinterW, StartPagePrinter, WritePrinter,
     };
     use windows::core::{PCWSTR, PWSTR};
 
@@ -70,17 +70,20 @@ pub fn print_raw(printer: &str, bytes: &[u8]) -> Result<(), String> {
                 &mut written,
             )
             .as_bool();
-            let _ = EndPagePrinter(handle);
-            ok && written as usize == bytes.len()
+            let ended = EndPagePrinter(handle).as_bool();
+            ok && ended && written as usize == bytes.len()
         } else {
             false
         };
-        let _ = EndDocPrinter(handle);
-        if written {
-            Ok(())
-        } else {
-            Err("the printer did not take the whole slip".to_string())
+        if !written {
+            let _ = AbortPrinter(handle);
+            return Err("the printer did not take the whole slip".to_string());
         }
+        if !EndDocPrinter(handle).as_bool() {
+            let _ = AbortPrinter(handle);
+            return Err("Windows could not finish the print job".to_string());
+        }
+        Ok(())
     })();
     let _ = unsafe { ClosePrinter(handle) };
     result
