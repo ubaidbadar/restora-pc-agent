@@ -46,12 +46,14 @@ pub fn unavailable(state: &str) -> bool {
 /// an entire network RPC timeout (Microsoft Winspool documentation). Shared
 /// remote queues remain "unknown" rather than blocking local diagnostics.
 #[cfg(windows)]
-pub fn scan() -> Result<Vec<PrinterHealth>, String> {
+pub fn scan(on_discovered: impl FnOnce(Vec<String>)) -> Result<Vec<PrinterHealth>, String> {
     use std::collections::HashMap;
     use windows::Win32::Graphics::Printing::{EnumPrintersW, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W};
     use windows::core::PWSTR;
 
     let names = crate::printers::list()?;
+    // Publish names before any potentially slow status query.
+    on_discovered(names.clone());
     let checked_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs())
@@ -150,7 +152,7 @@ pub fn scan() -> Result<Vec<PrinterHealth>, String> {
 }
 
 #[cfg(not(windows))]
-pub fn scan() -> Result<Vec<PrinterHealth>, String> {
+pub fn scan(_on_discovered: impl FnOnce(Vec<String>)) -> Result<Vec<PrinterHealth>, String> {
     Err("printer health is only available on Windows".to_string())
 }
 
