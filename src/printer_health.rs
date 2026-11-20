@@ -48,9 +48,7 @@ pub fn unavailable(state: &str) -> bool {
 #[cfg(windows)]
 pub fn scan() -> Result<Vec<PrinterHealth>, String> {
     use std::collections::HashMap;
-    use windows::Win32::Graphics::Printing::{
-        EnumPrintersW, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W,
-    };
+    use windows::Win32::Graphics::Printing::{EnumPrintersW, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W};
     use windows::core::PWSTR;
 
     let names = crate::printers::list()?;
@@ -112,7 +110,10 @@ pub fn scan() -> Result<Vec<PrinterHealth>, String> {
                     };
                     for info in infos {
                         if let Ok(name) = unsafe { info.pPrinterName.to_string() } {
-                            local.insert(name, (state(info.Status, info.Attributes), info.Status, info.cJobs));
+                            local.insert(
+                                name,
+                                (state(info.Status, info.Attributes), info.Status, info.cJobs),
+                            );
                         }
                     }
                     obtained = true;
@@ -135,9 +136,8 @@ pub fn scan() -> Result<Vec<PrinterHealth>, String> {
     Ok(names
         .into_iter()
         .map(|system_name| {
-            let (status, status_flags, queued_jobs) = local
-                .remove(&system_name)
-                .unwrap_or(("unknown", 0, 0));
+            let (status, status_flags, queued_jobs) =
+                local.remove(&system_name).unwrap_or(("unknown", 0, 0));
             PrinterHealth {
                 system_name,
                 state: status,
