@@ -158,11 +158,16 @@ pub async fn run(agent: Arc<Agent>) {
     let mut last_health_poll = Instant::now() - HEALTH_POLL;
     // A timeout cannot cancel Winspool's synchronous driver call. Never start
     // additional scans while one worker is still blocked.
-    let mut health_worker: Option<tokio::task::JoinHandle<Result<Vec<crate::printer_health::PrinterHealth>, String>>> = None;
+    let mut health_worker: Option<
+        tokio::task::JoinHandle<Result<Vec<crate::printer_health::PrinterHealth>, String>>,
+    > = None;
 
     loop {
         tokio::time::sleep(POLL).await;
-        if health_worker.as_ref().is_some_and(|worker| worker.is_finished()) {
+        if health_worker
+            .as_ref()
+            .is_some_and(|worker| worker.is_finished())
+        {
             let worker = health_worker.take().unwrap();
             match worker.await {
                 Ok(Ok(rows)) => agent.set_health(rows),
@@ -204,7 +209,9 @@ pub async fn run(agent: Arc<Agent>) {
                     tracing::warn!("{error}");
                 }
             } else {
-                tracing::warn!("printer health is unavailable or stale; keeping previous inventory");
+                tracing::warn!(
+                    "printer health is unavailable or stale; keeping previous inventory"
+                );
             }
         }
 
