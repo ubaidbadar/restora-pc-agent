@@ -192,7 +192,10 @@ pub async fn run(agent: Arc<Agent>) {
         }
         if health_worker.is_none() && last_health_poll.elapsed() >= HEALTH_POLL {
             last_health_poll = Instant::now();
-            health_worker = Some(tokio::task::spawn_blocking(crate::printer_health::scan));
+            let inventory_agent = agent.clone();
+            health_worker = Some(tokio::task::spawn_blocking(move || {
+                crate::printer_health::scan(|names| inventory_agent.set_windows_printers(names))
+            }));
         }
         let Some(config) = agent.config.lock().unwrap().clone() else {
             continue;
@@ -202,9 +205,9 @@ pub async fn run(agent: Arc<Agent>) {
         if reported.elapsed() >= REPORT_PRINTERS {
             // Reuse the single bounded health worker. A broken driver must not
             // create a second growing pool of stuck Winspool calls.
-            if let Some(health) = agent.health() {
+            if let Some(names) = agent.windows_printers() {
                 reported = Instant::now();
-                let names: Vec<_> = health.iter().map(|row| row.system_name.clone()).collect();
+                let health = agent.health().unwrap_or_default();
                 let response = agent
                     .http
                     .put(format!("{url}/printers"))
