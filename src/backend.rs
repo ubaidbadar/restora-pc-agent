@@ -293,7 +293,10 @@ pub async fn run(agent: Arc<Agent>) {
         // The server is authoritative: canceling/removing a job also releases its
         // retry metadata. Long-lived printer outages must not reset their backoff.
         let pending_ids: HashSet<_> = jobs.iter().map(|job| job.id.clone()).collect();
-        trying.lock().unwrap().retain(|id, _| pending_ids.contains(id));
+        trying
+            .lock()
+            .unwrap()
+            .retain(|id, _| pending_ids.contains(id));
 
         for job in oldest_per_printer(jobs) {
             let id = job.id.clone();
@@ -340,12 +343,22 @@ mod tests {
 
     #[test]
     fn recoverable_spooler_errors_stay_pending_for_late_reconnection() {
-        assert!(transient_printer_error("Windows reports offline for printer Kitchen"));
-        assert!(transient_printer_error("Windows reports not installed for printer Kitchen"));
-        assert!(transient_printer_error("cannot open printer: RPC unavailable"));
-        assert!(transient_printer_error("Windows could not finish the print job"));
+        assert!(transient_printer_error(
+            "Windows reports offline for printer Kitchen"
+        ));
+        assert!(transient_printer_error(
+            "Windows reports not installed for printer Kitchen"
+        ));
+        assert!(transient_printer_error(
+            "cannot open printer: RPC unavailable"
+        ));
+        assert!(transient_printer_error(
+            "Windows could not finish the print job"
+        ));
         assert!(!transient_printer_error("kind must be kitchen or receipt"));
-        assert!(!transient_printer_error("Printed slip history cannot be read"));
+        assert!(!transient_printer_error(
+            "Printed slip history cannot be read"
+        ));
     }
 
     #[test]
