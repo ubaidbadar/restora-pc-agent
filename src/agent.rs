@@ -41,6 +41,8 @@ pub struct Agent {
     printers: Mutex<serde_json::Value>,
     /// Last successful Windows printer discovery; status requests never call the blocking spooler API.
     windows_printers: Mutex<Option<Vec<String>>>,
+    /// Latest completed, non-stale Windows driver/spooler health scan.
+    health: Mutex<Option<(std::time::Instant, Vec<crate::printer_health::PrinterHealth>)>>,
     pub http: reqwest::Client,
     /// Whether the last call to Restora got through, for the local status endpoint.
     pub online: std::sync::atomic::AtomicBool,
@@ -112,6 +114,7 @@ impl Agent {
             journal_ok: AtomicBool::new(journal_ok),
             printers: Mutex::new(printers),
             windows_printers: Mutex::new(None),
+            health: Mutex::new(None),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(15))
                 .build()
@@ -334,6 +337,21 @@ impl Agent {
 
     pub fn set_windows_printers(&self, names: Vec<String>) {
         *self.windows_printers.lock().unwrap() = Some(names);
+    }
+
+    /// A slow or stuck driver cannot turn an old report into a current health claim.
+    pub fn health(&self) -> Option<Vec<crate::printer_health::PrinterHealth>> {
+        self.health
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() <= Duration::from_secs(45))
+            .map(|(_, rows)| rows.clone())
+    }
+
+    pub fn set_health(&self, rows: Vec<crate::printer_health::PrinterHealth>) {
+        self.set_windows_printers(rows.iter().map(|row| row.system_name.clone()).collect());
+        *self.health.lock().unwrap() = Some((std::time::Instant::now(), rows));
     }
 
     pub fn set_printers(&self, printers: serde_json::Value) -> Result<(), String> {
