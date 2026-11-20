@@ -1,3 +1,27 @@
+/// The user's Windows default printer. Discovery alone does not imply a
+/// printer should receive restaurant slips, so the backend only auto-routes to
+/// this explicit OS choice.
+#[cfg(windows)]
+pub fn default_name() -> Option<String> {
+    use windows::Win32::Graphics::Printing::GetDefaultPrinterW;
+    use windows::core::PWSTR;
+
+    let mut size = 0u32;
+    let _ = unsafe { GetDefaultPrinterW(PWSTR::null(), &mut size) };
+    if size == 0 || size > 4096 {
+        return None;
+    }
+    let mut buffer = vec![0u16; size as usize];
+    unsafe { GetDefaultPrinterW(PWSTR(buffer.as_mut_ptr()), &mut size) }.ok()?;
+    let end = buffer.iter().position(|ch| *ch == 0).unwrap_or(buffer.len());
+    String::from_utf16(&buffer[..end]).ok().filter(|name| !name.is_empty())
+}
+
+#[cfg(not(windows))]
+pub fn default_name() -> Option<String> {
+    None
+}
+
 /// Names of the printers installed in Windows, as the spooler knows them.
 #[cfg(windows)]
 pub fn list() -> Result<Vec<String>, String> {
