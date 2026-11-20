@@ -72,12 +72,21 @@ fn known_printer_problem(status: u32) -> Option<&'static str> {
     const PROBLEMS: &[(u32, &str)] = &[
         (0x0000_0080, "Windows reports that the printer is offline"),
         (0x0000_0001, "Windows reports that the printer is paused"),
-        (0x0000_0010, "Windows reports that the printer is out of paper"),
+        (
+            0x0000_0010,
+            "Windows reports that the printer is out of paper",
+        ),
         (0x0000_0008, "Windows reports a paper jam"),
         (0x0000_0040, "Windows reports a paper problem"),
         (0x0040_0000, "Windows reports an open printer cover"),
-        (0x0010_0000, "Windows reports that the printer needs attention"),
-        (0x0000_1000, "Windows reports that the printer is unavailable"),
+        (
+            0x0010_0000,
+            "Windows reports that the printer needs attention",
+        ),
+        (
+            0x0000_1000,
+            "Windows reports that the printer is unavailable",
+        ),
         (0x0000_0002, "Windows reports a printer error"),
     ];
     PROBLEMS
