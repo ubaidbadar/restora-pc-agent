@@ -40,7 +40,7 @@ pub struct Agent {
     /// The printers as staff set them in Restora, kept (printers.json) so the web app on this PC can print without internet.
     printers: Mutex<serde_json::Value>,
     /// Last successful Windows printer discovery; status requests never call the blocking spooler API.
-    windows_printers: Mutex<Option<Vec<String>>>,
+    windows_printers: Mutex<Option<(std::time::Instant, Vec<String>)>>,
     /// Latest completed, non-stale Windows driver/spooler health scan.
     health: Mutex<
         Option<(
@@ -349,11 +349,16 @@ impl Agent {
     }
 
     pub fn windows_printers(&self) -> Option<Vec<String>> {
-        self.windows_printers.lock().unwrap().clone()
+        self.windows_printers
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() <= Duration::from_secs(45))
+            .map(|(_, names)| names.clone())
     }
 
     pub fn set_windows_printers(&self, names: Vec<String>) {
-        *self.windows_printers.lock().unwrap() = Some(names);
+        *self.windows_printers.lock().unwrap() = Some((std::time::Instant::now(), names));
     }
 
     /// A slow or stuck driver cannot turn an old report into a current health claim.
