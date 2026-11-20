@@ -1,6 +1,6 @@
 use crate::agent::{Agent, Slip, retry_delay};
 use crate::config::Config;
-use crate::{printers, slips};
+use crate::slips;
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
