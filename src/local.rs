@@ -27,10 +27,10 @@ pub fn app_url() -> String {
 
 /// Opens the Restora PWA's printer settings after the server revokes this PC's pairing.
 pub fn open_setup() {
-    #[cfg(windows)]
+    #[cfg(all(windows, not(feature = "embedded")))]
     crate::pwa::open(&app_url(), "/settings/printers");
-    #[cfg(not(windows))]
-    tracing::info!("reconnect this agent in {}/settings/printers", app_url());
+    #[cfg(any(not(windows), feature = "embedded"))]
+    tracing::warn!("Restora Desktop printer pairing was revoked; reconnect inside Restora.");
 }
 
 struct Local {
