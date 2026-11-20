@@ -35,7 +35,10 @@ fn state(status: u32, attributes: u32) -> &'static str {
 }
 
 pub fn unavailable(state: &str) -> bool {
-    matches!(state, "offline" | "paused" | "paperOut" | "paperJam" | "doorOpen" | "error")
+    matches!(
+        state,
+        "offline" | "paused" | "paperOut" | "paperJam" | "doorOpen" | "error"
+    )
 }
 
 /// Enumerating level 2 includes status and job count; level 4 only gives names.
