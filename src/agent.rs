@@ -252,35 +252,35 @@ impl Agent {
         }
         let api = api_for(api)?;
         let mut printer_discovery_completed = false;
-        let windows_printers = match tokio::time::timeout(
+        let (windows_printers, default_printer) = match tokio::time::timeout(
             Duration::from_secs(5),
-            tokio::task::spawn_blocking(printers::list),
+            tokio::task::spawn_blocking(|| printers::list().map(|names| (names, printers::default_name()))),
         )
         .await
         {
-            Ok(Ok(Ok(names))) => {
+            Ok(Ok(Ok((names, default_printer)))) => {
                 printer_discovery_completed = true;
-                names
+                (names, default_printer)
             }
             Ok(Ok(Err(error))) => {
                 tracing::warn!("could not discover Windows printers while pairing: {error}");
-                Vec::new()
+                (Vec::new(), None)
             }
             Ok(Err(error)) => {
                 tracing::warn!("Windows printer discovery task failed while pairing: {error}");
-                Vec::new()
+                (Vec::new(), None)
             }
             Err(_) => {
                 tracing::warn!(
                     "Windows printer discovery timed out while pairing; it will retry in the background"
                 );
-                Vec::new()
+                (Vec::new(), None)
             }
         };
         if printer_discovery_completed {
             self.set_windows_printers(windows_printers.clone());
         }
-        let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": windows_printers });
+        let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": windows_printers, "defaultPrinter": default_printer });
         let response = self
             .http
             .post(format!("{api}/print-agent/pair"))
