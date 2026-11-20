@@ -168,7 +168,12 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
                 .find(|r| r.printer == system_name)
                 .map(|r| r.state == "printed"),
             unused: false,
-            health: health.as_ref().and_then(|items| items.iter().find(|item| item.system_name == system_name).cloned()),
+            health: health.as_ref().and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item.system_name == system_name)
+                    .cloned()
+            }),
         });
     }
     let set_up = rows.len();
@@ -182,19 +187,27 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
                     found: Some(true),
                     last_ok: None,
                     unused: true,
-                    health: health.as_ref().and_then(|items| items.iter().find(|item| item.system_name == *name).cloned()),
+                    health: health.as_ref().and_then(|items| {
+                        items.iter().find(|item| item.system_name == *name).cloned()
+                    }),
                 });
             }
         }
     }
     let used = &rows[..set_up];
     let missing = used.iter().filter(|r| r.found == Some(false)).count();
-    let failing = used.iter().filter(|r| {
-        r.last_ok == Some(false)
-            || r.health.as_ref().is_some_and(|h| matches!(
-                h.state, "offline" | "paused" | "paperOut" | "paperJam" | "doorOpen" | "error"
-            ))
-    }).count();
+    let failing = used
+        .iter()
+        .filter(|r| {
+            r.last_ok == Some(false)
+                || r.health.as_ref().is_some_and(|h| {
+                    matches!(
+                        h.state,
+                        "offline" | "paused" | "paperOut" | "paperJam" | "doorOpen" | "error"
+                    )
+                })
+        })
+        .count();
     let found = used.iter().filter(|r| r.found == Some(true)).count();
     Snapshot {
         paired,
