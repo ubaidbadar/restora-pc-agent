@@ -168,7 +168,9 @@ pub async fn run(agent: Arc<Agent>) {
             reported = Instant::now();
             let discovered = tokio::time::timeout(
                 Duration::from_secs(5),
-                tokio::task::spawn_blocking(|| printers::list().map(|names| (names, printers::default_name()))),
+                tokio::task::spawn_blocking(|| {
+                    printers::list().map(|names| (names, printers::default_name()))
+                }),
             )
             .await;
             if let Ok(Ok(Ok((names, default_printer)))) = discovered {
