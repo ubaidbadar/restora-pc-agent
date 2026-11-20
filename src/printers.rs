@@ -1,4 +1,5 @@
 /// Names of the printers installed in Windows, as the spooler knows them.
+/// Level 4 avoids remote OpenPrinter/RPC waits that level 2 causes on shared queues.
 #[cfg(windows)]
 pub fn list() -> Result<Vec<String>, String> {
     use windows::Win32::Graphics::Printing::{
@@ -8,30 +9,59 @@ pub fn list() -> Result<Vec<String>, String> {
 
     let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
     let (mut needed, mut count) = (0u32, 0u32);
-    // The first call only says how many bytes the list takes; it "fails" with insufficient buffer.
-    let _ = unsafe { EnumPrintersW(flags, PWSTR::null(), 4, None, &mut needed, &mut count) };
+    let first = unsafe { EnumPrintersW(flags, PWSTR::null(), 4, None, &mut needed, &mut count) };
     if needed == 0 {
-        return Ok(Vec::new());
+        return first.map(|_| Vec::new()).map_err(|err| err.to_string());
     }
-    let mut buffer = vec![0u8; needed as usize];
-    unsafe {
-        EnumPrintersW(
-            flags,
-            PWSTR::null(),
-            4,
-            Some(&mut buffer),
-            &mut needed,
-            &mut count,
-        )
+    // A Winspool buffer contains native pointer-bearing structs. Vec<u8>
+    // does not guarantee their alignment; allocate pointer-aligned storage.
+    for _ in 0..3 {
+        if needed as usize > 16 * 1024 * 1024 {
+            return Err("Windows printer inventory exceeds the safety limit".to_string());
+        }
+        let words = (needed as usize).div_ceil(std::mem::size_of::<usize>());
+        let mut storage = vec![0usize; words];
+        let available = storage.len() * std::mem::size_of::<usize>();
+        let bytes = unsafe {
+            std::slice::from_raw_parts_mut(storage.as_mut_ptr().cast::<u8>(), available)
+        };
+        let capacity = available as u32;
+        match unsafe {
+            EnumPrintersW(
+                flags,
+                PWSTR::null(),
+                4,
+                Some(bytes),
+                &mut needed,
+                &mut count,
+            )
+        } {
+            Ok(()) => {
+                if (count as usize) > available / std::mem::size_of::<PRINTER_INFO_4W>() {
+                    return Err("Windows returned a malformed printer count".to_string());
+                }
+                let infos = unsafe {
+                    std::slice::from_raw_parts(
+                        storage.as_ptr().cast::<PRINTER_INFO_4W>(),
+                        count as usize,
+                    )
+                };
+                let mut names: Vec<_> = infos
+                    .iter()
+                    .filter_map(|info| unsafe { info.pPrinterName.to_string().ok() })
+                    .collect();
+                names.sort();
+                names.dedup();
+                return Ok(names);
+            }
+            Err(err) if needed > capacity => {
+                // Printer inventory grew between the sizing and reading calls.
+                tracing::debug!("Windows printer inventory changed while reading: {err}");
+            }
+            Err(err) => return Err(err.to_string()),
+        }
     }
-    .map_err(|e| e.to_string())?;
-    let infos = unsafe {
-        std::slice::from_raw_parts(buffer.as_ptr() as *const PRINTER_INFO_4W, count as usize)
-    };
-    Ok(infos
-        .iter()
-        .filter_map(|info| unsafe { info.pPrinterName.to_string().ok() })
-        .collect())
+    Err("Windows printer inventory changed repeatedly during discovery".to_string())
 }
 
 /// Sends `bytes` to the printer as a RAW job: the printer gets them exactly as they are (ESC/POS), no driver rendering.
