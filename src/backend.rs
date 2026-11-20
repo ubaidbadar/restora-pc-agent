@@ -301,9 +301,10 @@ pub async fn run(agent: Arc<Agent>) {
             // queued jobs until it recovers, not expire after 15 minutes of retries.
             // Unknown status is not a positive outage report; normal retries apply.
             if agent.health().is_some_and(|rows| {
-                rows.iter().any(|row| {
-                    row.system_name == job.printer && crate::printer_health::unavailable(row.state)
-                })
+                match rows.iter().find(|row| row.system_name == job.printer) {
+                    Some(row) => crate::printer_health::unavailable(row.state),
+                    None => true,
+                }
             }) {
                 trying.lock().unwrap().remove(&id);
                 continue;
