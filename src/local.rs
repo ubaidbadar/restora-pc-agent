@@ -1,5 +1,5 @@
 use crate::agent::{Agent, Slip};
-use crate::{printers, slips};
+use crate::slips;
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub const ADDRESS: &str = "127.0.0.1:17777";
@@ -148,23 +148,16 @@ async fn config(State(local): State<Shared>) -> Json<serde_json::Value> {
     )
 }
 
-async fn list_printers() -> Response {
-    match tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio::task::spawn_blocking(printers::list),
-    ).await {
-        Ok(Ok(Ok(names))) => Json(json!(names)).into_response(),
-        Ok(Ok(Err(message))) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "message": message })),
-        ).into_response(),
-        Ok(Err(error)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "message": error.to_string() })),
-        ).into_response(),
-        Err(_) => (
-            StatusCode::GATEWAY_TIMEOUT,
-            Json(json!({ "message": "Windows printer discovery timed out. Check the Windows Print Spooler and try again." })),
+/// Never start an additional potentially hung Winspool call on each browser
+/// request. Background discovery is the single authoritative source.
+async fn list_printers(State(local): State<Shared>) -> Response {
+    match local.agent.windows_printers() {
+        Some(names) => Json(json!(names)).into_response(),
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "message": "Windows printer discovery is unavailable or still running. Check the Print Spooler and try again."
+            })),
         ).into_response(),
     }
 }
