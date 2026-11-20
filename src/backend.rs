@@ -168,17 +168,17 @@ pub async fn run(agent: Arc<Agent>) {
             reported = Instant::now();
             let discovered = tokio::time::timeout(
                 Duration::from_secs(5),
-                tokio::task::spawn_blocking(printers::list),
+                tokio::task::spawn_blocking(|| printers::list().map(|names| (names, printers::default_name()))),
             )
             .await;
-            if let Ok(Ok(Ok(names))) = discovered {
+            if let Ok(Ok(Ok((names, default_printer)))) = discovered {
                 agent.set_windows_printers(names.clone());
                 let result = agent
                     .http
                     .put(format!("{url}/printers"))
                     .bearer_auth(&config.token)
                     .json(&serde_json::json!({
-                        "version": env!("CARGO_PKG_VERSION"), "printers": names,
+                        "version": env!("CARGO_PKG_VERSION"), "printers": names, "defaultPrinter": default_printer,
                     }))
                     .send()
                     .await;
