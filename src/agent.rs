@@ -160,6 +160,19 @@ impl Agent {
             return Ok(false);
         }
 
+        // Do not hand slips to Windows when its latest report already says the
+        // queue cannot print. A spooler-accepted job is not proof of paper output.
+        if let Some(row) = self.health().and_then(|rows| {
+            rows.into_iter().find(|row| row.system_name == slip.printer)
+        }) && matches!(
+            row.state,
+            "offline" | "paused" | "paperOut" | "paperJam" | "doorOpen" | "error"
+        ) {
+            let error = format!("Windows reports {} for printer {}", row.state, slip.printer);
+            self.note(slip, Some(error.clone()));
+            return Err(error);
+        }
+
         let bytes = slips::render(slip.kind, slip.order, slip.header, slip.width)
             .ok_or("kind must be kitchen or receipt")?;
         let mut submitted = false;
