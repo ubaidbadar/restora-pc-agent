@@ -9,6 +9,8 @@ repository = "https://github.com/ubaidbadar/restora-pc-agent"
 [features]
 # Store packages use the manifest startup task instead of a registry Run entry.
 store = []
+# Embed the native worker in Restora Desktop without a separate process.
+embedded = []
 
 [dependencies]
 axum = "0.8"
