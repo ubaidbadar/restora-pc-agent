@@ -34,6 +34,10 @@ fn state(status: u32, attributes: u32) -> &'static str {
     }
 }
 
+pub fn unavailable(state: &str) -> bool {
+    matches!(state, "offline" | "paused" | "paperOut" | "paperJam" | "doorOpen" | "error")
+}
+
 /// Enumerating level 2 includes status and job count; level 4 only gives names.
 /// This can block in a damaged driver, so the caller must run it off the async runtime,
 /// never start a second scan while the first is in flight, and expire stale readings.
@@ -101,7 +105,7 @@ pub fn scan() -> Result<Vec<PrinterHealth>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::state;
+    use super::{state, unavailable};
 
     #[test]
     fn windows_reports_offline_even_if_the_printer_is_still_installed() {
@@ -117,6 +121,14 @@ mod tests {
         assert_eq!(state(0x0040_0000, 0), "doorOpen");
         assert_eq!(state(0x01, 0), "paused");
         assert_eq!(state(0x02, 0), "error");
+    }
+
+    #[test]
+    fn only_explicit_windows_error_states_block_spooler_submission() {
+        assert!(unavailable("offline"));
+        assert!(unavailable("paperOut"));
+        assert!(!unavailable("unknown"));
+        assert!(!unavailable("busy"));
     }
 
     #[test]
