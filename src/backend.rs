@@ -185,10 +185,10 @@ pub async fn run(agent: Arc<Agent>) {
         let url = format!("{}/print-agent", config.api);
 
         if reported.elapsed() >= REPORT_PRINTERS {
-            reported = Instant::now();
             // Reuse the single bounded health worker. A broken driver must not
             // create a second growing pool of stuck Winspool calls.
             if let Some(health) = agent.health() {
+                reported = Instant::now();
                 let names: Vec<_> = health.iter().map(|row| row.system_name.clone()).collect();
                 let response = agent
                     .http
@@ -209,9 +209,7 @@ pub async fn run(agent: Arc<Agent>) {
                     tracing::warn!("{error}");
                 }
             } else {
-                tracing::warn!(
-                    "printer health is unavailable or stale; keeping previous inventory"
-                );
+                tracing::debug!("printer health unavailable; retaining previous inventory");
             }
         }
 
