@@ -7,12 +7,14 @@ pub fn default_name() -> Option<String> {
     use windows::core::PWSTR;
 
     let mut size = 0u32;
-    let _ = unsafe { GetDefaultPrinterW(PWSTR::null(), &mut size) };
+    let _ = unsafe { GetDefaultPrinterW(None, &mut size) };
     if size == 0 || size > 4096 {
         return None;
     }
     let mut buffer = vec![0u16; size as usize];
-    unsafe { GetDefaultPrinterW(PWSTR(buffer.as_mut_ptr()), &mut size) }.ok()?;
+    if !unsafe { GetDefaultPrinterW(Some(PWSTR(buffer.as_mut_ptr())), &mut size) }.as_bool() {
+        return None;
+    }
     let end = buffer
         .iter()
         .position(|ch| *ch == 0)
