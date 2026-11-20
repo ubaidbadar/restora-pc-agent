@@ -280,10 +280,11 @@ pub async fn run(agent: Arc<Agent>) {
             // A printer that Windows explicitly marks unavailable must keep its
             // queued jobs until it recovers, not expire after 15 minutes of retries.
             // Unknown status is not a positive outage report; normal retries apply.
-            if agent.health().is_some_and(|rows| rows.iter().any(|row| {
-                row.system_name == job.printer
-                    && crate::printer_health::unavailable(row.state)
-            })) {
+            if agent.health().is_some_and(|rows| {
+                rows.iter().any(|row| {
+                    row.system_name == job.printer && crate::printer_health::unavailable(row.state)
+                })
+            }) {
                 trying.lock().unwrap().remove(&id);
                 continue;
             }
