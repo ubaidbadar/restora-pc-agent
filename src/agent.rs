@@ -42,7 +42,12 @@ pub struct Agent {
     /// Last successful Windows printer discovery; status requests never call the blocking spooler API.
     windows_printers: Mutex<Option<Vec<String>>>,
     /// Latest completed, non-stale Windows driver/spooler health scan.
-    health: Mutex<Option<(std::time::Instant, Vec<crate::printer_health::PrinterHealth>)>>,
+    health: Mutex<
+        Option<(
+            std::time::Instant,
+            Vec<crate::printer_health::PrinterHealth>,
+        )>,
+    >,
     pub http: reqwest::Client,
     /// Whether the last call to Restora got through, for the local status endpoint.
     pub online: std::sync::atomic::AtomicBool,
@@ -162,12 +167,14 @@ impl Agent {
 
         // Do not hand slips to Windows when its latest report already says the
         // queue cannot print. A spooler-accepted job is not proof of paper output.
-        if let Some(row) = self.health().and_then(|rows| {
-            rows.into_iter().find(|row| row.system_name == slip.printer)
-        }) && matches!(
-            row.state,
-            "offline" | "paused" | "paperOut" | "paperJam" | "doorOpen" | "error"
-        ) {
+        if let Some(row) = self
+            .health()
+            .and_then(|rows| rows.into_iter().find(|row| row.system_name == slip.printer))
+            && matches!(
+                row.state,
+                "offline" | "paused" | "paperOut" | "paperJam" | "doorOpen" | "error"
+            )
+        {
             let error = format!("Windows reports {} for printer {}", row.state, slip.printer);
             self.note(slip, Some(error.clone()));
             return Err(error);
