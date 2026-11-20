@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Give up a job after persistent spooler errors; the server then shows it as failed.
+/// Malformed jobs and non-spooler errors fail after this deadline. Spooler outages remain pending.
 const GIVE_UP: Duration = Duration::from_secs(15 * 60);
 const POLL: Duration = Duration::from_secs(2);
 const REPORT_PRINTERS: Duration = Duration::from_secs(60);
@@ -44,6 +44,21 @@ fn oldest_per_printer(jobs: Vec<Job>) -> Vec<Job> {
     jobs.into_iter()
         .filter(|job| seen.insert(job.printer.clone()))
         .collect()
+}
+
+/// A lost or unavailable Windows printer can recover well after 15 minutes.
+/// Keep these jobs pending until the backend's retention period; do not mark
+/// a recoverable hardware outage as a terminal failure.
+fn transient_printer_error(error: &str) -> bool {
+    [
+        "Windows reports ",
+        "cannot open printer:",
+        "cannot start the print job",
+        "the printer did not take the whole slip",
+        "Windows could not finish the print job",
+    ]
+    .iter()
+    .any(|prefix| error.starts_with(prefix))
 }
 
 /// One attempt only. Errors are scheduled for a later poll, so cancellation
@@ -118,7 +133,7 @@ async fn attempt(
                 });
                 item.next = Instant::now() + retry_delay(item.attempts);
                 item.attempts += 1;
-                let expired = item.first.elapsed() >= GIVE_UP;
+                let expired = item.first.elapsed() >= GIVE_UP && !transient_printer_error(&error);
                 let attempt = item.attempts;
                 if expired {
                     retries.remove(&job_id);
@@ -275,6 +290,11 @@ pub async fn run(agent: Arc<Agent>) {
             }
         };
 
+        // The server is authoritative: canceling/removing a job also releases its
+        // retry metadata. Long-lived printer outages must not reset their backoff.
+        let pending_ids: HashSet<_> = jobs.iter().map(|job| job.id.clone()).collect();
+        trying.lock().unwrap().retain(|id, _| pending_ids.contains(id));
+
         for job in oldest_per_printer(jobs) {
             let id = job.id.clone();
             // A printer that Windows explicitly marks unavailable must keep its
@@ -310,17 +330,22 @@ pub async fn run(agent: Arc<Agent>) {
                 activity.lock().unwrap().remove(&printer);
             });
         }
-        // Avoid retaining old retry metadata for jobs the server has removed.
-        trying
-            .lock()
-            .unwrap()
-            .retain(|_, retry| retry.first.elapsed() < GIVE_UP * 2);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recoverable_spooler_errors_stay_pending_for_late_reconnection() {
+        assert!(transient_printer_error("Windows reports offline for printer Kitchen"));
+        assert!(transient_printer_error("Windows reports not installed for printer Kitchen"));
+        assert!(transient_printer_error("cannot open printer: RPC unavailable"));
+        assert!(transient_printer_error("Windows could not finish the print job"));
+        assert!(!transient_printer_error("kind must be kitchen or receipt"));
+        assert!(!transient_printer_error("Printed slip history cannot be read"));
+    }
 
     #[test]
     fn dispatches_oldest_job_for_each_printer_without_starving_other_printers() {
