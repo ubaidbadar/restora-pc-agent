@@ -90,6 +90,12 @@ struct Paired {
     agent: Option<PairedAgent>,
 }
 
+impl Default for Agent {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Agent {
     pub fn new() -> Self {
         let (printed, journal_ok) =
