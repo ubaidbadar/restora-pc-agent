@@ -254,7 +254,9 @@ impl Agent {
         let mut printer_discovery_completed = false;
         let (windows_printers, default_printer) = match tokio::time::timeout(
             Duration::from_secs(5),
-            tokio::task::spawn_blocking(|| printers::list().map(|names| (names, printers::default_name()))),
+            tokio::task::spawn_blocking(|| {
+                printers::list().map(|names| (names, printers::default_name()))
+            }),
         )
         .await
         {
