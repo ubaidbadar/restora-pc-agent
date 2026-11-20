@@ -12,6 +12,8 @@ pub mod status;
 
 #[cfg(all(windows, not(feature = "embedded")))]
 pub mod pwa;
+#[cfg(all(windows, not(feature = "embedded")))]
+pub mod launch;
 
 /// Start the same restricted local protocol and server print queue used by the
 /// standalone agent. The runtime is owned by this process, so it stops when
