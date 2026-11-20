@@ -13,8 +13,13 @@ pub fn default_name() -> Option<String> {
     }
     let mut buffer = vec![0u16; size as usize];
     unsafe { GetDefaultPrinterW(PWSTR(buffer.as_mut_ptr()), &mut size) }.ok()?;
-    let end = buffer.iter().position(|ch| *ch == 0).unwrap_or(buffer.len());
-    String::from_utf16(&buffer[..end]).ok().filter(|name| !name.is_empty())
+    let end = buffer
+        .iter()
+        .position(|ch| *ch == 0)
+        .unwrap_or(buffer.len());
+    String::from_utf16(&buffer[..end])
+        .ok()
+        .filter(|name| !name.is_empty())
 }
 
 #[cfg(not(windows))]
