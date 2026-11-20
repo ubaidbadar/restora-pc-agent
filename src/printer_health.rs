@@ -41,62 +41,110 @@ pub fn unavailable(state: &str) -> bool {
     )
 }
 
-/// Enumerating level 2 includes status and job count; level 4 only gives names.
-/// This can block in a damaged driver, so the caller must run it off the async runtime,
-/// never start a second scan while the first is in flight, and expire stale readings.
+/// Discover all queue names through fast level-4 enumeration. Query status only
+/// for local queues: level-2 enumeration of remote connections can stall for
+/// an entire network RPC timeout (Microsoft Winspool documentation). Shared
+/// remote queues remain "unknown" rather than blocking local diagnostics.
 #[cfg(windows)]
 pub fn scan() -> Result<Vec<PrinterHealth>, String> {
+    use std::collections::HashMap;
     use windows::Win32::Graphics::Printing::{
-        EnumPrintersW, PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W,
+        EnumPrintersW, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W,
     };
     use windows::core::PWSTR;
 
-    let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
-    let (mut needed, mut count) = (0u32, 0u32);
-    let first = unsafe { EnumPrintersW(flags, PWSTR::null(), 2, None, &mut needed, &mut count) };
-    if needed == 0 {
-        return first.map(|_| Vec::new()).map_err(|e| e.to_string());
-    }
-
-    // Winspool writes structs containing pointers: ensure pointer-width alignment.
-    let words = (needed as usize).div_ceil(std::mem::size_of::<usize>());
-    let mut storage = vec![0usize; words];
-    let buffer = unsafe {
-        std::slice::from_raw_parts_mut(
-            storage.as_mut_ptr().cast::<u8>(),
-            storage.len() * std::mem::size_of::<usize>(),
-        )
-    };
-    unsafe {
-        EnumPrintersW(
-            flags,
-            PWSTR::null(),
-            2,
-            Some(buffer),
-            &mut needed,
-            &mut count,
-        )
-    }
-    .map_err(|e| e.to_string())?;
-
+    let names = crate::printers::list()?;
     let checked_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0);
-    let infos = unsafe {
-        std::slice::from_raw_parts(storage.as_ptr().cast::<PRINTER_INFO_2W>(), count as usize)
+    let mut local = HashMap::new();
+
+    let (mut needed, mut count) = (0u32, 0u32);
+    let first = unsafe {
+        EnumPrintersW(
+            PRINTER_ENUM_LOCAL,
+            PWSTR::null(),
+            2,
+            None,
+            &mut needed,
+            &mut count,
+        )
     };
-    Ok(infos
-        .iter()
-        .filter_map(|info| {
-            let system_name = unsafe { info.pPrinterName.to_string() }.ok()?;
-            Some(PrinterHealth {
+    if needed == 0 {
+        if let Err(err) = first {
+            tracing::warn!("Windows local printer status unavailable: {err}");
+        }
+    } else {
+        // Native printer records contain pointers; storage must be aligned.
+        // Bound allocation and retries when the printer list changes mid-call.
+        let mut obtained = false;
+        for _ in 0..3 {
+            if needed as usize > 16 * 1024 * 1024 {
+                break;
+            }
+            let words = (needed as usize).div_ceil(std::mem::size_of::<usize>());
+            let mut storage = vec![0usize; words];
+            let available = storage.len() * std::mem::size_of::<usize>();
+            let bytes = unsafe {
+                std::slice::from_raw_parts_mut(storage.as_mut_ptr().cast::<u8>(), available)
+            };
+            let capacity = available as u32;
+            match unsafe {
+                EnumPrintersW(
+                    PRINTER_ENUM_LOCAL,
+                    PWSTR::null(),
+                    2,
+                    Some(bytes),
+                    &mut needed,
+                    &mut count,
+                )
+            } {
+                Ok(()) => {
+                    if count as usize > available / std::mem::size_of::<PRINTER_INFO_2W>() {
+                        return Err("Windows returned a malformed printer status count".to_string());
+                    }
+                    let infos = unsafe {
+                        std::slice::from_raw_parts(
+                            storage.as_ptr().cast::<PRINTER_INFO_2W>(),
+                            count as usize,
+                        )
+                    };
+                    for info in infos {
+                        if let Ok(name) = unsafe { info.pPrinterName.to_string() } {
+                            local.insert(name, (state(info.Status, info.Attributes), info.Status, info.cJobs));
+                        }
+                    }
+                    obtained = true;
+                    break;
+                }
+                Err(err) if needed > capacity => {
+                    tracing::debug!("Windows local printer list grew during status read: {err}");
+                }
+                Err(err) => {
+                    tracing::warn!("Windows local printer status unavailable: {err}");
+                    break;
+                }
+            }
+        }
+        if !obtained {
+            tracing::warn!("Windows returned only printer names, not reliable local status");
+        }
+    }
+
+    Ok(names
+        .into_iter()
+        .map(|system_name| {
+            let (status, status_flags, queued_jobs) = local
+                .remove(&system_name)
+                .unwrap_or(("unknown", 0, 0));
+            PrinterHealth {
                 system_name,
-                state: state(info.Status, info.Attributes),
+                state: status,
                 checked_at,
-                queued_jobs: info.cJobs,
-                status_flags: info.Status,
-            })
+                queued_jobs,
+                status_flags,
+            }
         })
         .collect())
 }
