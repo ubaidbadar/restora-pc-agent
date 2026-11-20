@@ -11,9 +11,9 @@ pub mod slips;
 pub mod status;
 
 #[cfg(all(windows, not(feature = "embedded")))]
-pub mod pwa;
-#[cfg(all(windows, not(feature = "embedded")))]
 pub mod launch;
+#[cfg(all(windows, not(feature = "embedded")))]
+pub mod pwa;
 
 /// Start the same restricted local protocol and server print queue used by the
 /// standalone agent. The runtime is owned by this process, so it stops when
@@ -25,7 +25,9 @@ pub fn start_embedded() -> Result<(), String> {
 
     let listener = std::net::TcpListener::bind(local::ADDRESS)
         .map_err(|error| format!("Restora printing cannot start on {}: {error}. Close the standalone Restora Agent before opening Desktop.", local::ADDRESS))?;
-    listener.set_nonblocking(true).map_err(|error| error.to_string())?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| error.to_string())?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
