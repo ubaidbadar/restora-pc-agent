@@ -274,35 +274,11 @@ impl Agent {
             return Err("This PC is already connected. Remove it from the original branch in Restora before reconnecting.".into());
         }
         let api = api_for(api)?;
-        let mut printer_discovery_completed = false;
-        let windows_printers = match tokio::time::timeout(
-            Duration::from_secs(5),
-            tokio::task::spawn_blocking(printers::list),
-        )
-        .await
-        {
-            Ok(Ok(Ok(names))) => {
-                printer_discovery_completed = true;
-                names
-            }
-            Ok(Ok(Err(error))) => {
-                tracing::warn!("could not discover Windows printers while pairing: {error}");
-                Vec::new()
-            }
-            Ok(Err(error)) => {
-                tracing::warn!("Windows printer discovery task failed while pairing: {error}");
-                Vec::new()
-            }
-            Err(_) => {
-                tracing::warn!(
-                    "Windows printer discovery timed out while pairing; it will retry in the background"
-                );
-                Vec::new()
-            }
-        };
-        if printer_discovery_completed {
-            self.set_windows_printers(windows_printers.clone());
-        }
+        // The background worker owns Windows discovery. A pairing request must
+        // not start another potentially blocked print-driver thread.
+        // If its first scan is still running, pair with an empty inventory;
+        // the worker synchronizes the real printers immediately afterwards.
+        let windows_printers = self.windows_printers().unwrap_or_default();
         let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": windows_printers });
         let response = self
             .http
