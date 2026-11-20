@@ -8,8 +8,8 @@ mod escpos;
 mod launch;
 mod local;
 mod logo;
-mod printers;
 mod printer_health;
+mod printers;
 #[cfg(windows)]
 mod pwa;
 mod slips;
