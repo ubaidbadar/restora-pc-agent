@@ -101,7 +101,7 @@ pub fn headline(
         } else {
             format!("{failing} printers need attention")
         };
-        (Tone::Bad, what, "Check paper and the cover. Restora tries again for 15 minutes, then marks the slip as failed.".to_string())
+        (Tone::Bad, what, "Check printer power, paper and Windows queue errors. Temporary spooler outages keep their pending jobs until recovery or server retention expiry.".to_string())
     } else {
         let n = if found == 1 {
             "1 printer is".to_string()
