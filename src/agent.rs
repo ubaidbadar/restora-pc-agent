@@ -170,10 +170,7 @@ impl Agent {
         if let Some(row) = self
             .health()
             .and_then(|rows| rows.into_iter().find(|row| row.system_name == slip.printer))
-            && matches!(
-                row.state,
-                "offline" | "paused" | "paperOut" | "paperJam" | "doorOpen" | "error"
-            )
+            && crate::printer_health::unavailable(row.state)
         {
             let error = format!("Windows reports {} for printer {}", row.state, slip.printer);
             self.note(slip, Some(error.clone()));
