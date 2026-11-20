@@ -11,7 +11,8 @@ use std::{
 /// Give up a job after persistent spooler errors; the server then shows it as failed.
 const GIVE_UP: Duration = Duration::from_secs(15 * 60);
 const POLL: Duration = Duration::from_secs(2);
-const REPORT_PRINTERS: Duration = Duration::from_secs(5 * 60);
+const REPORT_PRINTERS: Duration = Duration::from_secs(60);
+const HEALTH_POLL: Duration = Duration::from_secs(15);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -154,9 +155,25 @@ pub async fn run(agent: Arc<Agent>) {
     let active_printers = Arc::new(Mutex::new(HashSet::<String>::new()));
     let mut reported = Instant::now() - REPORT_PRINTERS;
     let mut printer_revision = String::new();
+    let mut last_health_poll = Instant::now() - HEALTH_POLL;
+    // A timeout cannot cancel Winspool's synchronous driver call. Never start
+    // additional scans while one worker is still blocked.
+    let mut health_worker: Option<tokio::task::JoinHandle<Result<Vec<crate::printer_health::PrinterHealth>, String>>> = None;
 
     loop {
         tokio::time::sleep(POLL).await;
+        if health_worker.as_ref().is_some_and(|worker| worker.is_finished()) {
+            let worker = health_worker.take().unwrap();
+            match worker.await {
+                Ok(Ok(rows)) => agent.set_health(rows),
+                Ok(Err(error)) => tracing::warn!("printer health scan failed: {error}"),
+                Err(error) => tracing::warn!("printer health worker failed: {error}"),
+            }
+        }
+        if health_worker.is_none() && last_health_poll.elapsed() >= HEALTH_POLL {
+            last_health_poll = Instant::now();
+            health_worker = Some(tokio::task::spawn_blocking(crate::printer_health::scan));
+        }
         let Some(config) = agent.config.lock().unwrap().clone() else {
             continue;
         };
@@ -179,6 +196,7 @@ pub async fn run(agent: Arc<Agent>) {
                     .bearer_auth(&config.token)
                     .json(&serde_json::json!({
                         "version": env!("CARGO_PKG_VERSION"), "printers": names,
+                        "health": agent.health().unwrap_or_default(),
                     }))
                     .send()
                     .await;
