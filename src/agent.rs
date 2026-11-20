@@ -167,14 +167,17 @@ impl Agent {
 
         // Do not hand slips to Windows when its latest report already says the
         // queue cannot print. A spooler-accepted job is not proof of paper output.
-        if let Some(row) = self
-            .health()
-            .and_then(|rows| rows.into_iter().find(|row| row.system_name == slip.printer))
-            && crate::printer_health::unavailable(row.state)
-        {
-            let error = format!("Windows reports {} for printer {}", row.state, slip.printer);
-            self.note(slip, Some(error.clone()));
-            return Err(error);
+        if let Some(rows) = self.health() {
+            let problem = match rows.iter().find(|row| row.system_name == slip.printer) {
+                Some(row) if crate::printer_health::unavailable(row.state) => Some(row.state),
+                None => Some("not installed"),
+                _ => None,
+            };
+            if let Some(problem) = problem {
+                let error = format!("Windows reports {problem} for printer {}", slip.printer);
+                self.note(slip, Some(error.clone()));
+                return Err(error);
+            }
         }
 
         let bytes = slips::render(slip.kind, slip.order, slip.header, slip.width)
