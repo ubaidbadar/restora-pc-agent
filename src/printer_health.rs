@@ -61,7 +61,14 @@ pub fn scan() -> Result<Vec<PrinterHealth>, String> {
         )
     };
     unsafe {
-        EnumPrintersW(flags, PWSTR::null(), 2, Some(buffer), &mut needed, &mut count)
+        EnumPrintersW(
+            flags,
+            PWSTR::null(),
+            2,
+            Some(buffer),
+            &mut needed,
+            &mut count,
+        )
     }
     .map_err(|e| e.to_string())?;
 
