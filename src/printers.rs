@@ -22,9 +22,8 @@ pub fn list() -> Result<Vec<String>, String> {
         let words = (needed as usize).div_ceil(std::mem::size_of::<usize>());
         let mut storage = vec![0usize; words];
         let available = storage.len() * std::mem::size_of::<usize>();
-        let bytes = unsafe {
-            std::slice::from_raw_parts_mut(storage.as_mut_ptr().cast::<u8>(), available)
-        };
+        let bytes =
+            unsafe { std::slice::from_raw_parts_mut(storage.as_mut_ptr().cast::<u8>(), available) };
         let capacity = available as u32;
         match unsafe {
             EnumPrintersW(
