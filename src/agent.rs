@@ -303,6 +303,16 @@ impl Agent {
         self.last_results.lock().unwrap().get(printer).cloned()
     }
 
+    fn clear_last_results(&self) {
+        self.last_results.lock().unwrap().clear();
+        if let Err(error) = std::fs::remove_file(config::folder().join("printer-last-results.json")) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!("could not clear previous pairing's printer result: {error}");
+            }
+        }
+        self.test_after.lock().unwrap().clear();
+    }
+
     pub fn request_printer_refresh(&self) {
         self.refresh_pending.store(true, Ordering::Release);
     }
@@ -463,6 +473,7 @@ impl Agent {
                 self.journal_ok.store(false, Ordering::Relaxed);
             }
         }
+        self.clear_last_results();
         *self.config.lock().unwrap() = Some(config);
         if let Err(error) = self.set_printers(paired.printers) {
             tracing::error!("paired, but could not save offline printer settings: {error}");
@@ -543,6 +554,7 @@ impl Agent {
         if let Err(error) = self.set_printers(serde_json::json!([])) {
             tracing::error!("could not clear offline printer settings: {error}");
         }
+        self.clear_last_results();
         *self.config.lock().unwrap() = None;
         // Keys from a removed restaurant must not suppress slips for a future tenant.
         // Keep the history if disk access fails: fail closed rather than silently erase.
