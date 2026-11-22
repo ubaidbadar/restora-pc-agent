@@ -145,6 +145,7 @@ fn main() {
     tracing::info!("listening on http://{}", local::ADDRESS);
     let paired = agent.paired();
     runtime.spawn(backend::run(agent.clone()));
+    runtime.spawn(backend::monitor_printers(agent.clone()));
     runtime.spawn(async move {
         axum::serve(listener, local::router(agent, origins))
             .await
