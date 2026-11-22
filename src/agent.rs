@@ -253,6 +253,7 @@ impl Agent {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let order = format!("Order #{}", slips::token(slip.order));
+        let succeeded = error.is_none();
         let line = Recent {
             at,
             printer: slip.printer.to_string(),
@@ -268,8 +269,8 @@ impl Agent {
         recent.push_front(line);
         recent.truncate(RECENT);
         drop(recent);
-        self.record_last_result(slip.printer, error.is_none(), at);
-        if error.is_some() {
+        self.record_last_result(slip.printer, succeeded, at);
+        if !succeeded {
             self.request_printer_refresh();
         }
     }
