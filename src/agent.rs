@@ -286,8 +286,14 @@ impl Agent {
     }
 
     fn persist_last_results(results: &HashMap<String, LastPrintResult>) -> Result<(), String> {
+        Self::write_last_results_to(&config::folder().join("printer-last-results.json"), results)
+    }
+
+    fn write_last_results_to(
+        path: &std::path::Path,
+        results: &HashMap<String, LastPrintResult>,
+    ) -> Result<(), String> {
         use std::io::Write;
-        let path = config::folder().join("printer-last-results.json");
         let temp = path.with_extension("json.tmp");
         let bytes = serde_json::to_vec(results).map_err(|e| e.to_string())?;
         let mut file = std::fs::File::create(&temp).map_err(|e| e.to_string())?;
@@ -586,6 +592,31 @@ pub fn retry_delay(attempt: u32) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn last_submissions_survive_a_disk_roundtrip_without_touching_printed_log() {
+        let path = std::env::temp_dir().join(format!(
+            "restora-printer-results-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let mut saved = HashMap::new();
+        saved.insert("Kitchen".to_string(), LastPrintResult { ok: false, at: 10 });
+        Agent::write_last_results_to(&path, &saved).unwrap();
+        let first: HashMap<String, LastPrintResult> =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(!first["Kitchen"].ok);
+        saved.insert("Kitchen".to_string(), LastPrintResult { ok: true, at: 11 });
+        Agent::write_last_results_to(&path, &saved).unwrap();
+        let next: HashMap<String, LastPrintResult> =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(next["Kitchen"].ok);
+        assert_eq!(next["Kitchen"].at, 11);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn retries_get_slower_and_settle_at_a_minute() {
