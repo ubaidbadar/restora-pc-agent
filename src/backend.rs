@@ -382,9 +382,21 @@ mod tests {
             checked_at: 100,
         };
         let first = printer_revision(&names, &[status.clone()]);
-        let second = printer_revision(&names, &[PrinterHealth { checked_at: 130, ..status.clone() }]);
+        let second = printer_revision(
+            &names,
+            &[PrinterHealth {
+                checked_at: 130,
+                ..status.clone()
+            }],
+        );
         assert_eq!(first, second);
-        let third = printer_revision(&names, &[PrinterHealth { state: PrinterState::Offline, ..status }]);
+        let third = printer_revision(
+            &names,
+            &[PrinterHealth {
+                state: PrinterState::Offline,
+                ..status
+            }],
+        );
         assert_ne!(first, third);
         assert!(!report_due(&first, &second, Duration::from_secs(30)));
         assert!(report_due(&first, &second, Duration::from_secs(300)));

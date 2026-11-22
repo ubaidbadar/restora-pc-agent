@@ -277,7 +277,17 @@ mod tests {
             checked_at: Some(123),
         };
         let json = serde_json::to_value(row).unwrap();
-        for key in ["name", "systemName", "prints", "found", "lastOk", "unused", "state", "source", "checkedAt"] {
+        for key in [
+            "name",
+            "systemName",
+            "prints",
+            "found",
+            "lastOk",
+            "unused",
+            "state",
+            "source",
+            "checkedAt",
+        ] {
             assert!(json.get(key).is_some(), "missing {key}");
         }
         assert_eq!(json["found"], true);
