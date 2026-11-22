@@ -124,6 +124,12 @@ pub fn headline(
             "Printer readiness is unverified",
             "Windows can list a USB printer even when it is off. No supported hardware status was confirmed.",
         )
+    } else if wpp.is_none() {
+        (
+            Tone::Warn,
+            "Printer status available; Windows print mode unverified",
+            "Print queues report ready, but Windows Protected Print Mode could not be checked with this Windows API binding.",
+        )
     } else {
         (
             Tone::Good,
@@ -264,7 +270,7 @@ mod tests {
             Tone::Warn
         );
         assert_eq!(
-            headline(true, true, &[PrinterState::Ready], false, true, None).tone,
+            headline(true, true, &[PrinterState::Ready], false, true, Some(false)).tone,
             Tone::Good
         );
     }
