@@ -243,16 +243,18 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
     let selected = &rows[..configured_count];
     let states = selected.iter().map(|r| r.state).collect::<Vec<_>>();
     let last_failed = selected.iter().any(|r| r.last_ok == Some(false));
-    // The effective WPP state is currently unknown on windows 0.61.3.
-    // A policy registry value is NOT an effective-mode query.
-    let wpp = serde_json::Value::String("unknown".into());
+    // Only an official effective-mode WinRT query is accepted as true/false.
+    let wpp_result = agent.wpp();
+    let wpp = wpp_result
+        .map(serde_json::Value::Bool)
+        .unwrap_or_else(|| serde_json::Value::String("unknown".into()));
     Snapshot {
         paired,
         reconnect_required: config::reconnect_required(),
         branch_id,
         online,
         version: env!("CARGO_PKG_VERSION"),
-        headline: headline(paired, online, &states, last_failed, checked, None),
+        headline: headline(paired, online, &states, last_failed, checked, wpp_result),
         printers: rows,
         recent,
         wpp,
