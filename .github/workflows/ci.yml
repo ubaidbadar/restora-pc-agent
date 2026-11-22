@@ -25,6 +25,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Check explicit Windows MSVC target and resolved Win32 features
+        shell: pwsh
+        run: cargo check --locked --target x86_64-pc-windows-msvc
       # The same Windows release gate maintainers run locally: formatting,
       # clippy, unit/integration tests (including DPAPI), then release build.
       - name: Verify Windows release candidate
