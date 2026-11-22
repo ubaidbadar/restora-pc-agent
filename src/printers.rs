@@ -68,7 +68,7 @@ pub fn list() -> Result<Vec<WinPrinter>, String> {
                     })
                     .collect();
             }
-            Err(error) if retry == 0 && needed as usize > allocation => {
+            Err(_error) if retry == 0 && needed as usize > allocation => {
                 size = needed as usize;
                 continue;
             }
