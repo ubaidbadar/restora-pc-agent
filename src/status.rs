@@ -1,19 +1,15 @@
-//! What the local status endpoint reports: one honest summary built from facts the agent really has.
-//! Four separate layers are kept apart: this program (always running if this is answered), the connection to Restora,
-//! the printers Windows lists, and the last result of each slip. Windows cannot say whether a printer has paper or is
-//! powered, so "found in Windows" is never shown as "ready".
-use crate::{agent::Agent, config};
+//! Local status is only a snapshot of cached evidence, never a spooler call.
+use crate::{
+    agent::Agent,
+    config,
+    printer_state::{PrinterHealth, PrinterState, Source},
+};
 use serde::Serialize;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum Tone {
-    /// Nothing to report yet (not paired).
-    Neutral,
-    Good,
-    Warn,
-    Bad,
-}
+pub enum Tone { Neutral, Good, Warn, Bad }
 
 #[derive(Serialize, Debug)]
 pub struct Headline {
@@ -25,17 +21,17 @@ pub struct Headline {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrinterRow {
-    /// The name staff gave it in Restora, else the Windows name.
     pub name: String,
     pub system_name: String,
-    /// What it prints: "kitchen", "receipt".
     pub prints: Vec<String>,
-    /// In the Windows list now: true, false, or null when this PC cannot say.
+    /// Backward compatible: does Windows still list the queue, not physical readiness?
     pub found: Option<bool>,
-    /// Whether the last slip sent to it printed: true, false, or null when nothing was sent since this program started.
+    /// Last *spooler submission*, not a physical paper-output confirmation.
     pub last_ok: Option<bool>,
-    /// Listed in Windows but not set up in Restora.
     pub unused: bool,
+    pub state: PrinterState,
+    pub source: Option<Source>,
+    pub checked_at: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -49,184 +45,158 @@ pub struct Snapshot {
     pub headline: Headline,
     pub printers: Vec<PrinterRow>,
     pub recent: Vec<crate::agent::Recent>,
+    /// This value must never be false unless Windows' effective WPP API says so.
+    pub wpp: serde_json::Value,
+    /// Inventory of USBPRINT interfaces, not a queue-to-hardware association.
+    pub usbprint_interfaces_present: Option<usize>,
 }
 
-/// The one line shown first, worst news first. "Good" only when every layer checked out.
 pub fn headline(
     paired: bool,
     online: bool,
-    set_up: usize,
-    missing: usize,
-    failing: usize,
-    found: usize,
+    states: &[PrinterState],
+    last_failed: bool,
     checked: bool,
+    wpp: Option<bool>,
 ) -> Headline {
-    let (tone, title, detail) = if !paired {
-        (
-            Tone::Neutral,
-            "Not connected to Restora yet".to_string(),
-            "Click Connect to Restora below and sign in. It takes a minute.".to_string(),
-        )
+    let (tone, title, detail) = if wpp == Some(true) {
+        (Tone::Bad, "Windows Protected Print Mode is enabled",
+         "Legacy RAW ESC/POS printing is not supported in protected mode. Turn it off in Windows printer settings and reconnect your printer.")
+    } else if !paired {
+        (Tone::Neutral, "Not connected to Restora yet",
+         "Connect this PC in Restora Settings > Printers.")
     } else if !online {
-        (
-            Tone::Warn,
-            "No internet connection".to_string(),
-            "New slips wait in Restora and print here as soon as the internet is back.".to_string(),
-        )
-    } else if set_up == 0 {
-        (
-            Tone::Warn,
-            "No printer is set up yet".to_string(),
-            "In Restora, open Settings, then Printers, and choose what each printer prints."
-                .to_string(),
-        )
+        (Tone::Warn, "No internet connection",
+         "Remote slips wait in Restora. Local printing may still be available.")
+    } else if states.is_empty() {
+        (Tone::Warn, "No printer is set up yet",
+         "Open Restora Settings > Printers and assign your print queues.")
     } else if !checked {
-        (
-            Tone::Neutral,
-            "Checking Windows printers".to_string(),
-            "Restora Agent is running. Printer discovery is still in progress; you can keep using Restora.".to_string(),
-        )
-    } else if missing > 0 {
-        let what = if missing == 1 {
-            "A printer was not found on this PC".to_string()
-        } else {
-            format!("{missing} printers were not found on this PC")
-        };
-        (Tone::Bad, what, "Check that it is switched on and plugged in. Slips for it wait and print when it is back.".to_string())
-    } else if failing > 0 {
-        let what = if failing == 1 {
-            "The last slip did not print".to_string()
-        } else {
-            format!("{failing} printers did not print their last slip")
-        };
-        (Tone::Bad, what, "Check paper and the cover. Restora tries again for 15 minutes, then marks the slip as failed.".to_string())
+        (Tone::Neutral, "Checking Windows printers",
+         "Printer discovery has not finished; printing remains available.")
+    } else if states.iter().any(|s| matches!(s, PrinterState::NotFound | PrinterState::Offline)) {
+        (Tone::Bad, "A printer is missing or offline",
+         "Check power, cables and the Windows print queue.")
+    } else if states.iter().any(|s| matches!(s, PrinterState::PaperOut | PrinterState::Error)) {
+        (Tone::Bad, "A printer needs attention",
+         "Check paper, cover and Windows printer errors.")
+    } else if last_failed {
+        (Tone::Bad, "The last printer submission failed",
+         "Check the printer. Restora's existing retry schedule remains active.")
+    } else if states.contains(&PrinterState::Unknown) {
+        (Tone::Warn, "Printer readiness is unverified",
+         "Windows can list a USB printer even when it is off. No supported hardware status was confirmed.")
     } else {
-        let n = if found == 1 {
-            "1 printer is".to_string()
-        } else {
-            format!("{found} printers are")
-        };
-        (
-            Tone::Good,
-            "Connected and listening".to_string(),
-            format!(
-                "{n} found on this PC. Windows cannot tell paper or cover status, so check those when a slip is missing."
-            ),
-        )
+        (Tone::Good, "Connected and listening",
+         "The available print queues report ready. This does not guarantee physical paper output.")
     };
-    Headline {
-        tone,
-        title,
-        detail,
+    Headline { tone, title: title.into(), detail: detail.into() }
+}
+
+fn observation(
+    name: &str,
+    health: &Option<Vec<PrinterHealth>>,
+    windows_known: bool,
+    now: u64,
+) -> (PrinterState, Option<Source>, Option<u64>) {
+    if let Some(found) = health.as_ref().and_then(|list| list.iter().find(|h| h.system_name == name)) {
+        // No stale green (or stale errors). Keep the timestamp so users can see the age.
+        let state = if now.saturating_sub(found.checked_at) > 90 {
+            PrinterState::Unknown
+        } else {
+            found.state
+        };
+        (state, Some(found.source), Some(found.checked_at))
+    } else if windows_known {
+        (PrinterState::NotFound, Some(Source::Spooler), None)
+    } else {
+        (PrinterState::Unknown, None, None)
     }
 }
 
-/// Reads the agent's cached state only. This must stay fast: browsers and the local status page call it during setup.
 pub fn snapshot(agent: &Agent) -> Snapshot {
     let paired = agent.paired();
-    let branch_id = agent
-        .config
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|config| config.branch_id.clone());
+    let branch_id = agent.config.lock().unwrap().as_ref().and_then(|c| c.branch_id.clone());
     let online = agent.online.load(std::sync::atomic::Ordering::Relaxed);
     let windows = agent.windows_printers();
+    let health = agent.printer_health();
     let checked = windows.is_some();
     let recent = agent.recent();
     let configured = agent.printers();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
 
-    let mut rows: Vec<PrinterRow> = Vec::new();
-    for p in configured.as_array().into_iter().flatten() {
-        let Some(system_name) = p["systemName"].as_str() else {
-            continue;
-        };
-        let label = p["label"]
-            .as_str()
-            .filter(|l| !l.trim().is_empty())
-            .unwrap_or(system_name);
-        let prints = p["prints"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|k| k.as_str().map(String::from))
-                    .collect()
-            })
+    let mut rows = Vec::<PrinterRow>::new();
+    for printer in configured.as_array().into_iter().flatten() {
+        let Some(system_name) = printer["systemName"].as_str() else { continue };
+        let label = printer["label"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or(system_name);
+        let prints = printer["prints"].as_array()
+            .map(|kinds| kinds.iter().filter_map(|kind| kind.as_str().map(String::from)).collect())
             .unwrap_or_default();
+        let (state, source, checked_at) = observation(system_name, &health, checked, now);
         rows.push(PrinterRow {
             name: label.to_string(),
             system_name: system_name.to_string(),
             prints,
-            found: windows
-                .as_ref()
-                .map(|list| list.iter().any(|n| n == system_name)),
-            last_ok: recent
-                .iter()
-                .find(|r| r.printer == system_name)
-                .map(|r| r.state == "printed"),
+            found: windows.as_ref().map(|list| list.iter().any(|name| name == system_name)),
+            last_ok: agent.last_result(system_name).map(|r| r.ok),
             unused: false,
+            state, source, checked_at,
         });
     }
-    let set_up = rows.len();
+    let configured_count = rows.len();
     if let Some(list) = &windows {
         for name in list {
-            if !rows.iter().any(|r| &r.system_name == name) {
-                rows.push(PrinterRow {
-                    name: name.clone(),
-                    system_name: name.clone(),
-                    prints: Vec::new(),
-                    found: Some(true),
-                    last_ok: None,
-                    unused: true,
-                });
-            }
+            if rows.iter().any(|row| &row.system_name == name) { continue; }
+            let (state, source, checked_at) = observation(name, &health, checked, now);
+            rows.push(PrinterRow {
+                name: name.clone(), system_name: name.clone(), prints: Vec::new(),
+                found: Some(true), last_ok: agent.last_result(name).map(|r| r.ok),
+                unused: true, state, source, checked_at,
+            });
         }
     }
-    let used = &rows[..set_up];
-    let missing = used.iter().filter(|r| r.found == Some(false)).count();
-    let failing = used.iter().filter(|r| r.last_ok == Some(false)).count();
-    let found = used.iter().filter(|r| r.found == Some(true)).count();
+    let selected = &rows[..configured_count];
+    let states = selected.iter().map(|r| r.state).collect::<Vec<_>>();
+    let last_failed = selected.iter().any(|r| r.last_ok == Some(false));
+    // The effective WPP state is currently unknown on windows 0.61.3.
+    // A policy registry value is NOT an effective-mode query.
+    let wpp = serde_json::Value::String("unknown".into());
     Snapshot {
-        paired,
-        reconnect_required: config::reconnect_required(),
-        branch_id,
-        online,
+        paired, reconnect_required: config::reconnect_required(), branch_id, online,
         version: env!("CARGO_PKG_VERSION"),
-        headline: headline(paired, online, set_up, missing, failing, found, checked),
-        printers: rows,
-        recent,
+        headline: headline(paired, online, &states, last_failed, checked, None),
+        printers: rows, recent, wpp,
+        usbprint_interfaces_present: agent.pnp_count(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn never_good_without_internet_or_printers() {
-        assert_eq!(
-            headline(false, false, 0, 0, 0, 0, false).tone,
-            Tone::Neutral
-        );
-        assert_eq!(headline(true, false, 2, 0, 0, 2, true).tone, Tone::Warn);
-        assert_eq!(headline(true, true, 0, 0, 0, 0, false).tone, Tone::Warn);
+    fn usb_unknown_never_gets_a_green_headline() {
+        assert_eq!(headline(true, true, &[PrinterState::Unknown], false, true, None).tone, Tone::Warn);
+        assert_eq!(headline(true, true, &[PrinterState::Ready], false, true, None).tone, Tone::Good);
     }
-
     #[test]
-    fn a_missing_or_failing_printer_is_bad_not_green() {
-        assert_eq!(headline(true, true, 2, 1, 0, 1, true).tone, Tone::Bad);
-        assert_eq!(headline(true, true, 2, 0, 1, 2, true).tone, Tone::Bad);
+    fn missing_faults_and_wpp_are_bad() {
+        for state in [PrinterState::NotFound, PrinterState::Offline, PrinterState::PaperOut, PrinterState::Error] {
+            assert_eq!(headline(true, true, &[state], false, true, None).tone, Tone::Bad);
+        }
+        assert_eq!(headline(true, true, &[PrinterState::Ready], false, true, Some(true)).tone, Tone::Bad);
+        assert_eq!(headline(true, true, &[PrinterState::Ready], true, true, None).tone, Tone::Bad);
     }
-
     #[test]
-    fn printer_discovery_in_progress_is_never_reported_as_healthy() {
-        assert_eq!(headline(true, true, 2, 0, 0, 0, false).tone, Tone::Neutral);
+    fn no_discovery_is_not_a_false_missing_printer() {
+        assert_eq!(observation("Kitchen", &None, false, 100).0, PrinterState::Unknown);
+        assert_eq!(observation("Kitchen", &Some(vec![]), true, 100).0, PrinterState::NotFound);
     }
-
     #[test]
-    fn good_only_when_every_layer_checks_out() {
-        let h = headline(true, true, 2, 0, 0, 2, true);
-        assert_eq!(h.tone, Tone::Good);
-        assert!(h.detail.contains("2 printers are found"));
+    fn stale_readiness_downgrades_to_unknown() {
+        let h = PrinterHealth {
+            system_name: "Kitchen".into(), port: "USB001".into(),
+            state: PrinterState::Ready, source: Source::Printer, checked_at: 10,
+        };
+        assert_eq!(observation("Kitchen", &Some(vec![h]), true, 101).0, PrinterState::Unknown);
     }
 }
