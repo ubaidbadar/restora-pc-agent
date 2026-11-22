@@ -1,0 +1,27 @@
+name: Phase 3 rustfmt (temporary implementation helper)
+on:
+  push:
+    branches: [feat/printer-status-phase3]
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/printer-status-phase3
+          persist-credentials: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format Rust code and push only resulting changes
+        run: |
+          cargo fmt --all
+          git add src
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style: apply rustfmt to Phase 3 Rust implementation"
+          git push origin HEAD:feat/printer-status-phase3
