@@ -271,7 +271,6 @@ pub async fn monitor_printers(agent: Arc<Agent>) {
                 }
             }
         }
-
     }
 }
 
