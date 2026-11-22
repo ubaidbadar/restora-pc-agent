@@ -406,6 +406,7 @@ mod tests {
                 checked_at: 130,
                 ..status.clone()
             }],
+            None,
         );
         assert_eq!(first, second);
         let third = printer_fingerprint(
@@ -414,8 +415,11 @@ mod tests {
                 state: PrinterState::Offline,
                 ..status
             }],
+            None,
         );
         assert_ne!(first, third);
+        assert_ne!(first, printer_fingerprint(&names, &[PrinterHealth { state: PrinterState::Unknown, source: Source::Spooler, system_name: "Kitchen".into(), port: "USB001".into(), checked_at: 100 }], Some(true)));
+        assert_ne!(first, printer_fingerprint(&names, &[PrinterHealth { state: PrinterState::Unknown, source: Source::Spooler, system_name: "Kitchen".into(), port: "USB001".into(), checked_at: 100 }], Some(false)));
         assert!(!report_due(&first, &second, Duration::from_secs(30)));
         assert!(report_due(&first, &second, Duration::from_secs(300)));
         assert!(report_due(&first, &third, Duration::from_secs(1)));
