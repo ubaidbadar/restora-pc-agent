@@ -180,17 +180,6 @@ pub async fn run(agent: Arc<Agent>) {
 
     loop {
         tokio::time::sleep(POLL).await;
-        let Some(config) = agent.config.lock().unwrap().clone() else {
-            continue;
-        };
-        let url = format!("{}/print-agent", config.api);
-        if last_pairing != config.token {
-            last_pairing = config.token.clone();
-            last_sent.clear();
-            reported = Instant::now() - REPORT_PRINTERS;
-            agent.request_printer_refresh();
-        }
-
         // Poll every 30 seconds as a fallback; Windows events and print failures set
         // refresh_pending for the next loop (normally within two seconds).
         let must_scan = scanned.elapsed() >= Duration::from_secs(30)
@@ -234,6 +223,19 @@ pub async fn run(agent: Arc<Agent>) {
                     );
                 }
             }
+        }
+
+        // Even an unpaired PC must populate the local printer list; pairing
+        // and network reporting remain gated by a valid Restora token.
+        let Some(config) = agent.config.lock().unwrap().clone() else {
+            continue;
+        };
+        let url = format!("{}/print-agent", config.api);
+        if last_pairing != config.token {
+            last_pairing = config.token.clone();
+            last_sent.clear();
+            reported = Instant::now() - REPORT_PRINTERS;
+            agent.request_printer_refresh();
         }
 
         // Keep the legacy names array; report status in new optional fields.
