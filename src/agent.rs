@@ -49,6 +49,7 @@ pub struct Agent {
     /// Shared with the remote job dispatcher and explicit test printing.
     pub active_printers: Arc<Mutex<HashSet<String>>>,
     last_results: Mutex<HashMap<String, LastPrintResult>>,
+    last_result_writer: Mutex<()>,
     test_after: Mutex<HashMap<String, Instant>>,
     pub http: reqwest::Client,
     /// Whether the last call to Restora got through, for the local status endpoint.
@@ -140,6 +141,7 @@ impl Agent {
             discovery_busy: Arc::new(AtomicBool::new(false)),
             active_printers: Arc::new(Mutex::new(HashSet::new())),
             last_results: Mutex::new(last_results),
+            last_result_writer: Mutex::new(()),
             test_after: Mutex::new(HashMap::new()),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(15))
@@ -276,11 +278,15 @@ impl Agent {
     }
 
     fn record_last_result(&self, printer: &str, ok: bool, at: u64) {
-        // Hold the map lock through the atomic rename: concurrent jobs on distinct
-        // printers must not overwrite each other's state with an older snapshot.
-        let mut results = self.last_results.lock().unwrap();
-        results.insert(printer.to_string(), LastPrintResult { ok, at });
-        if let Err(error) = Self::persist_last_results(&results) {
+        // Separate serialization of writers from the short-lived cache lock:
+        // /status must never wait for an on-disk fsync to read the last result.
+        let _writer = self.last_result_writer.lock().unwrap();
+        let snapshot = {
+            let mut results = self.last_results.lock().unwrap();
+            results.insert(printer.to_string(), LastPrintResult { ok, at });
+            results.clone()
+        };
+        if let Err(error) = Self::persist_last_results(&snapshot) {
             tracing::warn!("could not persist printer's last result: {error}");
         }
     }
@@ -310,6 +316,7 @@ impl Agent {
     }
 
     fn clear_last_results(&self) {
+        let _writer = self.last_result_writer.lock().unwrap();
         self.last_results.lock().unwrap().clear();
         if let Err(error) = std::fs::remove_file(config::folder().join("printer-last-results.json"))
         {
