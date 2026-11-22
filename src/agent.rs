@@ -1,6 +1,6 @@
 use crate::{
     config::{self, Config},
-    printer_state::{self, PrinterHealth, WinPrinter},
+    printer_state::{self, PrinterHealth, PrinterState, WinPrinter},
     printers, slips,
 };
 use serde::{Deserialize, Serialize};
@@ -349,7 +349,20 @@ impl Agent {
     }
 
     pub fn printer_health(&self) -> Option<Vec<PrinterHealth>> {
-        self.health.lock().unwrap().clone()
+        // Serve the SAME conservative snapshot to the local UI and backend.
+        // A stalled driver must not leave a stale Ready status in PUT /printers.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.health.lock().unwrap().clone().map(|mut states| {
+            for state in &mut states {
+                if now.saturating_sub(state.checked_at) > 90 {
+                    state.state = PrinterState::Unknown;
+                }
+            }
+            states
+        })
     }
 
     /// Explicit user-initiated RAW test; never touches the printed.log dedupe journal.
