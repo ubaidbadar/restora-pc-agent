@@ -151,8 +151,11 @@ async fn attempt(
 /// printer/driver stalls. At most one oldest pending job per printer is active.
 pub async fn run(agent: Arc<Agent>) {
     let trying = Arc::new(Mutex::new(HashMap::<String, Trying>::new()));
-    let active_printers = Arc::new(Mutex::new(HashSet::<String>::new()));
+    let active_printers = agent.active_printers.clone();
     let mut reported = Instant::now() - REPORT_PRINTERS;
+    let mut scanned = Instant::now() - Duration::from_secs(30);
+    let mut last_sent = String::new();
+    let mut last_pairing = String::new();
     let mut printer_revision = String::new();
 
     loop {
@@ -161,37 +164,92 @@ pub async fn run(agent: Arc<Agent>) {
             continue;
         };
         let url = format!("{}/print-agent", config.api);
+        if last_pairing != config.token {
+            last_pairing = config.token.clone();
+            last_sent.clear();
+            reported = Instant::now() - REPORT_PRINTERS;
+            agent.request_printer_refresh();
+        }
 
-        if reported.elapsed() >= REPORT_PRINTERS {
-            // Printer enumeration can block inside Windows/driver APIs. Keep it off the async runtime and bound the
-            // wait; status and print-job polling must remain responsive even when a driver is unhealthy.
-            reported = Instant::now();
-            let discovered = tokio::time::timeout(
-                Duration::from_secs(5),
-                tokio::task::spawn_blocking(printers::list),
-            )
-            .await;
-            if let Ok(Ok(Ok(names))) = discovered {
-                agent.set_windows_printers(names.clone());
-                let result = agent
-                    .http
+        // Poll every 30 seconds as a fallback; Windows events and print failures set
+        // refresh_pending for the next loop (normally within two seconds).
+        let must_scan = scanned.elapsed() >= Duration::from_secs(30)
+            || agent.refresh_pending.swap(false, Ordering::AcqRel);
+        if must_scan {
+            scanned = Instant::now();
+            if !agent.discovery_busy.swap(true, Ordering::AcqRel) {
+                let busy = agent.discovery_busy.clone();
+                let discovered = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    tokio::task::spawn_blocking(move || {
+                        struct ClearBusy(Arc<std::sync::atomic::AtomicBool>);
+                        impl Drop for ClearBusy {
+                            fn drop(&mut self) { self.0.store(false, Ordering::Release); }
+                        }
+                        let _guard = ClearBusy(busy);
+                        let queues = printers::list();
+                        #[cfg(windows)]
+                        let pnp_count = match crate::usb_pnp::list_present() {
+                            Ok(interfaces) => Some(interfaces.len()),
+                            Err(error) => {
+                                tracing::warn!("USBPRINT PnP discovery failed: {error}");
+                                None
+                            }
+                        };
+                        #[cfg(not(windows))]
+                        let pnp_count: Option<usize> = None;
+                        (queues, pnp_count)
+                    }),
+                ).await;
+                if let Ok(Ok((Ok(queues), pnp_count))) = discovered {
+                    agent.set_windows_printers(queues);
+                    if let Some(count) = pnp_count {
+                        agent.set_pnp_count(count);
+                    }
+                } else {
+                    // A timed-out spawn_blocking worker is still executing. The atomic
+                    // gate prevents unbounded additional blocked Win32 calls.
+                    tracing::warn!("printer discovery failed or timed out; retaining cached evidence");
+                }
+            }
+        }
+
+        // Keep the legacy names array; report status in new optional fields.
+        // checkedAt changes are intentionally excluded from the revision fingerprint.
+        if let Some(names) = agent.windows_printers() {
+            let statuses = agent.printer_health().unwrap_or_default();
+            let fingerprint = serde_json::to_string(&(
+                &names,
+                statuses.iter().map(|p| (&p.system_name, p.state, p.source)).collect::<Vec<_>>(),
+            )).unwrap_or_default();
+            if fingerprint != last_sent || reported.elapsed() >= REPORT_PRINTERS {
+                let reply = agent.http
                     .put(format!("{url}/printers"))
                     .bearer_auth(&config.token)
                     .json(&serde_json::json!({
-                        "version": env!("CARGO_PKG_VERSION"), "printers": names,
+                        "version": env!("CARGO_PKG_VERSION"),
+                        "printers": names,
+                        "printerStatuses": statuses,
+                        "wpp": "unknown",
                     }))
-                    .send()
-                    .await;
-                if let Ok(Ok(answer)) = result.map(|response| response.error_for_status())
-                    && let Ok(body) = answer.json::<serde_json::Value>().await
-                    && let Err(error) = agent.set_printers(body["printers"].clone())
-                {
-                    tracing::warn!("{error}");
+                    .send().await;
+                match reply {
+                    Ok(answer) => match answer.error_for_status() {
+                        Ok(answer) => {
+                            reported = Instant::now();
+                            last_sent = fingerprint;
+                            if let Ok(body) = answer.json::<serde_json::Value>().await {
+                                if body["printers"].is_array() {
+                                    if let Err(error) = agent.set_printers(body["printers"].clone()) {
+                                        tracing::warn!("{error}");
+                                    }
+                                }
+                            }
+                        }
+                        Err(error) => tracing::warn!("printer status report rejected: {error}"),
+                    },
+                    Err(error) => tracing::warn!("could not report printers: {error}"),
                 }
-            } else {
-                tracing::warn!(
-                    "Windows printer discovery failed or timed out; the agent will retry in five minutes"
-                );
             }
         }
 
