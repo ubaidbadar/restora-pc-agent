@@ -1,5 +1,5 @@
 use crate::agent::{Agent, Slip};
-use crate::{printers, slips};
+use crate::slips;
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub const ADDRESS: &str = "127.0.0.1:17777";
@@ -59,6 +59,13 @@ struct PrintRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPrintRequest {
+    printer: String,
+    branch_id: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct PairRequest {
     code: String,
     /// Sent by the web app: the API it uses, so the dev site pairs with the dev API.
@@ -84,6 +91,7 @@ pub fn router(agent: Arc<Agent>, origins: Vec<String>) -> Router {
         .route("/printers", get(list_printers))
         .route("/config", get(config))
         .route("/print", post(print))
+        .route("/test-print", post(test_print))
         .layer(middleware::from_fn_with_state(local.clone(), guard))
         .layer(cors)
         .with_state(local)
@@ -148,24 +156,41 @@ async fn config(State(local): State<Shared>) -> Json<serde_json::Value> {
     )
 }
 
-async fn list_printers() -> Response {
-    match tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio::task::spawn_blocking(printers::list),
-    ).await {
-        Ok(Ok(Ok(names))) => Json(json!(names)).into_response(),
-        Ok(Ok(Err(message))) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "message": message })),
+/// Cached names only: no Windows driver call on any HTTP request path.
+async fn list_printers(State(local): State<Shared>) -> Response {
+    match local.agent.windows_printers() {
+        Some(names) => Json(json!(names)).into_response(),
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "message": "Windows printer discovery is not yet available." })),
         ).into_response(),
-        Ok(Err(error)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "message": error.to_string() })),
-        ).into_response(),
-        Err(_) => (
-            StatusCode::GATEWAY_TIMEOUT,
-            Json(json!({ "message": "Windows printer discovery timed out. Check the Windows Print Spooler and try again." })),
-        ).into_response(),
+    }
+}
+
+async fn test_print(State(local): State<Shared>, Json(request): Json<TestPrintRequest>) -> Response {
+    let agent = local.agent.clone();
+    if !agent.paired() {
+        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Connect this PC first." }))).into_response();
+    }
+    let paired_branch = agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
+    if !branch_allowed(paired_branch.as_deref(), request.branch_id.as_deref()) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Wrong Restora branch." }))).into_response();
+    }
+    if request.printer.is_empty() || request.printer.len() > 200 {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "message": "Invalid printer name." }))).into_response();
+    }
+    let permitted = agent.printers().as_array().is_some_and(|list| {
+        list.iter().any(|printer| printer["systemName"] == request.printer && printer["present"] == true)
+    });
+    if !permitted {
+        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Printer not configured for this PC." }))).into_response();
+    }
+    let printer = request.printer;
+    let result = tokio::task::spawn_blocking(move || agent.test_print(&printer)).await
+        .unwrap_or_else(|error| Err(error.to_string()));
+    match result {
+        Ok(()) => Json(json!({ "submitted": true, "message": "Test job accepted by Windows spooler; paper output not guaranteed." })).into_response(),
+        Err(error) => (StatusCode::BAD_GATEWAY, Json(json!({ "message": error }))).into_response(),
     }
 }
 
