@@ -184,7 +184,9 @@ pub async fn run(agent: Arc<Agent>) {
                     tokio::task::spawn_blocking(move || {
                         struct ClearBusy(Arc<std::sync::atomic::AtomicBool>);
                         impl Drop for ClearBusy {
-                            fn drop(&mut self) { self.0.store(false, Ordering::Release); }
+                            fn drop(&mut self) {
+                                self.0.store(false, Ordering::Release);
+                            }
                         }
                         let _guard = ClearBusy(busy);
                         let queues = printers::list();
@@ -200,13 +202,16 @@ pub async fn run(agent: Arc<Agent>) {
                         let interfaces: Option<Vec<String>> = None;
                         (queues, interfaces)
                     }),
-                ).await;
+                )
+                .await;
                 if let Ok(Ok((Ok(queues), interfaces))) = discovered {
                     agent.set_windows_printers_with_pnp(queues, interfaces.as_deref());
                 } else {
                     // A timed-out spawn_blocking worker is still executing. The atomic
                     // gate prevents unbounded additional blocked Win32 calls.
-                    tracing::warn!("printer discovery failed or timed out; retaining cached evidence");
+                    tracing::warn!(
+                        "printer discovery failed or timed out; retaining cached evidence"
+                    );
                 }
             }
         }
@@ -217,10 +222,15 @@ pub async fn run(agent: Arc<Agent>) {
             let statuses = agent.printer_health().unwrap_or_default();
             let fingerprint = serde_json::to_string(&(
                 &names,
-                statuses.iter().map(|p| (&p.system_name, p.state, p.source)).collect::<Vec<_>>(),
-            )).unwrap_or_default();
+                statuses
+                    .iter()
+                    .map(|p| (&p.system_name, p.state, p.source))
+                    .collect::<Vec<_>>(),
+            ))
+            .unwrap_or_default();
             if fingerprint != last_sent || reported.elapsed() >= REPORT_PRINTERS {
-                let reply = agent.http
+                let reply = agent
+                    .http
                     .put(format!("{url}/printers"))
                     .bearer_auth(&config.token)
                     .json(&serde_json::json!({
@@ -229,7 +239,8 @@ pub async fn run(agent: Arc<Agent>) {
                         "printerStatuses": statuses,
                         "wpp": "unknown",
                     }))
-                    .send().await;
+                    .send()
+                    .await;
                 match reply {
                     Ok(answer) => match answer.error_for_status() {
                         Ok(answer) => {
@@ -237,7 +248,8 @@ pub async fn run(agent: Arc<Agent>) {
                             last_sent = fingerprint;
                             if let Ok(body) = answer.json::<serde_json::Value>().await {
                                 if body["printers"].is_array() {
-                                    if let Err(error) = agent.set_printers(body["printers"].clone()) {
+                                    if let Err(error) = agent.set_printers(body["printers"].clone())
+                                    {
                                         tracing::warn!("{error}");
                                     }
                                 }

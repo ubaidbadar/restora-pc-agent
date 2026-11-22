@@ -163,30 +163,57 @@ async fn list_printers(State(local): State<Shared>) -> Response {
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "message": "Windows printer discovery is not yet available." })),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 
-async fn test_print(State(local): State<Shared>, Json(request): Json<TestPrintRequest>) -> Response {
+async fn test_print(
+    State(local): State<Shared>,
+    Json(request): Json<TestPrintRequest>,
+) -> Response {
     let agent = local.agent.clone();
     if !agent.paired() {
-        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Connect this PC first." }))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "message": "Connect this PC first." })),
+        )
+            .into_response();
     }
-    let paired_branch = agent.config.lock().unwrap().as_ref().and_then(|config| config.branch_id.clone());
+    let paired_branch = agent
+        .config
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|config| config.branch_id.clone());
     if !branch_allowed(paired_branch.as_deref(), request.branch_id.as_deref()) {
-        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Wrong Restora branch." }))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "message": "Wrong Restora branch." })),
+        )
+            .into_response();
     }
     if request.printer.is_empty() || request.printer.len() > 200 {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "message": "Invalid printer name." }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "message": "Invalid printer name." })),
+        )
+            .into_response();
     }
     let permitted = agent.printers().as_array().is_some_and(|list| {
-        list.iter().any(|printer| printer["systemName"] == request.printer && printer["present"] == true)
+        list.iter()
+            .any(|printer| printer["systemName"] == request.printer && printer["present"] == true)
     });
     if !permitted {
-        return (StatusCode::FORBIDDEN, Json(json!({ "message": "Printer not configured for this PC." }))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "message": "Printer not configured for this PC." })),
+        )
+            .into_response();
     }
     let printer = request.printer;
-    let result = tokio::task::spawn_blocking(move || agent.test_print(&printer)).await
+    let result = tokio::task::spawn_blocking(move || agent.test_print(&printer))
+        .await
         .unwrap_or_else(|error| Err(error.to_string()));
     match result {
         Ok(()) => Json(json!({ "submitted": true, "message": "Test job accepted by Windows spooler; paper output not guaranteed." })).into_response(),

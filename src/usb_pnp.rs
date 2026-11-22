@@ -28,9 +28,9 @@ pub fn list_present() -> Result<Vec<String>, String> {
                 cbSize: std::mem::size_of::<SP_DEVICE_INTERFACE_DATA>() as u32,
                 ..Default::default()
             };
-            if let Err(e) = unsafe {
-                SetupDiEnumDeviceInterfaces(set, None, &USBPRINT_GUID, index, &mut data)
-            } {
+            if let Err(e) =
+                unsafe { SetupDiEnumDeviceInterfaces(set, None, &USBPRINT_GUID, index, &mut data) }
+            {
                 // HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS=259)
                 if e.code().0 as u32 & 0xFFFF == 259 {
                     break;
@@ -48,8 +48,12 @@ pub fn list_present() -> Result<Vec<String>, String> {
             }
             let words = (needed as usize).div_ceil(std::mem::size_of::<usize>());
             let mut storage = vec![0usize; words];
-            let detail = storage.as_mut_ptr().cast::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>();
-            unsafe { (*detail).cbSize = std::mem::size_of::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>() as u32 };
+            let detail = storage
+                .as_mut_ptr()
+                .cast::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>();
+            unsafe {
+                (*detail).cbSize = std::mem::size_of::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>() as u32
+            };
             unsafe {
                 SetupDiGetDeviceInterfaceDetailW(set, &data, Some(detail), needed, None, None)
             }
@@ -59,9 +63,15 @@ pub fn list_present() -> Result<Vec<String>, String> {
             let total = needed as usize;
             let units = (total - path_offset) / 2;
             let path = unsafe {
-                std::slice::from_raw_parts(storage.as_ptr().cast::<u8>().add(path_offset).cast::<u16>(), units)
+                std::slice::from_raw_parts(
+                    storage.as_ptr().cast::<u8>().add(path_offset).cast::<u16>(),
+                    units,
+                )
             };
-            let end = path.iter().position(|ch| *ch == 0).ok_or("unterminated device path")?;
+            let end = path
+                .iter()
+                .position(|ch| *ch == 0)
+                .ok_or("unterminated device path")?;
             result.push(String::from_utf16(&path[..end]).map_err(|e| e.to_string())?);
         }
         Ok(result)

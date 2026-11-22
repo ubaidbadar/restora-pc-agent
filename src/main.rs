@@ -8,18 +8,18 @@ mod escpos;
 mod launch;
 mod local;
 mod logo;
-mod printers;
-mod printer_state;
 #[cfg(windows)]
 mod printer_events;
-#[cfg(windows)]
-mod usb_pnp;
+mod printer_state;
+mod printers;
 #[cfg(windows)]
 mod pwa;
 mod slips;
 #[cfg(windows)]
 mod startup;
 mod status;
+#[cfg(windows)]
+mod usb_pnp;
 
 use std::sync::{Arc, Mutex};
 

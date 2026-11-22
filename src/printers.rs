@@ -29,7 +29,14 @@ pub fn list() -> Result<Vec<WinPrinter>, String> {
         };
         let allocation = bytes.len();
         let result = unsafe {
-            EnumPrintersW(flags, PWSTR::null(), 2, Some(bytes), &mut needed, &mut count)
+            EnumPrintersW(
+                flags,
+                PWSTR::null(),
+                2,
+                Some(bytes),
+                &mut needed,
+                &mut count,
+            )
         };
         match result {
             Ok(()) => {
@@ -39,26 +46,27 @@ pub fn list() -> Result<Vec<WinPrinter>, String> {
                     return Err("Winspool returned an invalid printer count".into());
                 }
                 let infos = unsafe {
-                    std::slice::from_raw_parts(
-                        storage.as_ptr().cast::<PRINTER_INFO_2W>(), count,
-                    )
+                    std::slice::from_raw_parts(storage.as_ptr().cast::<PRINTER_INFO_2W>(), count)
                 };
-                return infos.iter().map(|item| {
-                    let name = unsafe { item.pPrinterName.to_string() }
-                        .map_err(|e| format!("invalid Windows printer name: {e}"))?;
-                    let port = if item.pPortName.is_null() {
-                        String::new()
-                    } else {
-                        unsafe { item.pPortName.to_string() }.unwrap_or_default()
-                    };
-                    Ok(WinPrinter {
-                        name,
-                        port,
-                        status: item.Status,
-                        attributes: item.Attributes,
-                        jobs: item.cJobs,
+                return infos
+                    .iter()
+                    .map(|item| {
+                        let name = unsafe { item.pPrinterName.to_string() }
+                            .map_err(|e| format!("invalid Windows printer name: {e}"))?;
+                        let port = if item.pPortName.is_null() {
+                            String::new()
+                        } else {
+                            unsafe { item.pPortName.to_string() }.unwrap_or_default()
+                        };
+                        Ok(WinPrinter {
+                            name,
+                            port,
+                            status: item.Status,
+                            attributes: item.Attributes,
+                            jobs: item.cJobs,
+                        })
                     })
-                }).collect();
+                    .collect();
             }
             Err(error) if retry == 0 && needed as usize > allocation => {
                 size = needed as usize;

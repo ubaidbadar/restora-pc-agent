@@ -58,7 +58,10 @@ pub fn spooler_state(status: u32, attributes: u32) -> PrinterState {
     const SERVER_UNKNOWN: u32 = 0x00800000;
     if status & PAPER_OUT != 0 {
         PrinterState::PaperOut
-    } else if status & (PAPER_JAM | PAPER_PROBLEM | DOOR_OPEN | ERROR | USER_INTERVENTION | NO_TONER) != 0 {
+    } else if status
+        & (PAPER_JAM | PAPER_PROBLEM | DOOR_OPEN | ERROR | USER_INTERVENTION | NO_TONER)
+        != 0
+    {
         PrinterState::Error
     } else if attributes & WORK_OFFLINE != 0 || status & (OFFLINE | SERVER_OFFLINE) != 0 {
         PrinterState::Offline
@@ -73,25 +76,34 @@ pub fn spooler_state(status: u32, attributes: u32) -> PrinterState {
 /// A USB name must NEVER be joined to a PnP interface by enumeration order or VID:PID.
 pub fn usb_port_hint(port: &str) -> bool {
     port.split(',').map(str::trim).any(|p| {
-        p.get(..3).is_some_and(|head| head.eq_ignore_ascii_case("USB"))
-            && p.get(3..).is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+        p.get(..3)
+            .is_some_and(|head| head.eq_ignore_ascii_case("USB"))
+            && p.get(3..)
+                .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
     })
 }
 
 pub fn non_usb_port_known(port: &str) -> bool {
-    !port.is_empty() && !usb_port_hint(port) && port.split(',').all(|p| {
-        let p = p.trim();
-        ["IP_", "WSD-", "COM", "LPT", "FILE:", "PORTPROMPT:", "NUL:"]
-            .iter()
-            .any(|prefix| p.to_ascii_uppercase().starts_with(prefix))
-            || p.starts_with("\\\\")
-    })
+    !port.is_empty()
+        && !usb_port_hint(port)
+        && port.split(',').all(|p| {
+            let p = p.trim();
+            ["IP_", "WSD-", "COM", "LPT", "FILE:", "PORTPROMPT:", "NUL:"]
+                .iter()
+                .any(|prefix| p.to_ascii_uppercase().starts_with(prefix))
+                || p.starts_with("\\\\")
+        })
 }
 
 /// Fail closed for USB and for unclassified transport. PnP inventory alone is not enough.
 /// A future verified, one-to-one queue binding may provide positive/negative PnP evidence;
 /// *present* is still Unknown without real-time printer protocol evidence.
-pub fn classify(printer: &WinPrinter, bound_usb_present: Option<bool>, probe: Option<PrinterState>, checked_at: u64) -> PrinterHealth {
+pub fn classify(
+    printer: &WinPrinter,
+    bound_usb_present: Option<bool>,
+    probe: Option<PrinterState>,
+    checked_at: u64,
+) -> PrinterHealth {
     let spooler = spooler_state(printer.status, printer.attributes);
     let (state, source) = if spooler != PrinterState::Ready {
         (spooler, Source::Spooler)
@@ -101,14 +113,27 @@ pub fn classify(printer: &WinPrinter, bound_usb_present: Option<bool>, probe: Op
         } else if let Some(actual) = probe {
             (actual, Source::Printer)
         } else {
-            (PrinterState::Unknown, if bound_usb_present.is_some() { Source::Pnp } else { Source::Spooler })
+            (
+                PrinterState::Unknown,
+                if bound_usb_present.is_some() {
+                    Source::Pnp
+                } else {
+                    Source::Spooler
+                },
+            )
         }
     } else if non_usb_port_known(&printer.port) {
         (PrinterState::Ready, Source::Spooler)
     } else {
         (PrinterState::Unknown, Source::Spooler)
     };
-    PrinterHealth { system_name: printer.name.clone(), port: printer.port.clone(), state, source, checked_at }
+    PrinterHealth {
+        system_name: printer.name.clone(),
+        port: printer.port.clone(),
+        state,
+        source,
+        checked_at,
+    }
 }
 
 #[cfg(test)]
@@ -116,7 +141,13 @@ mod tests {
     use super::*;
 
     fn printer(port: &str, status: u32, attributes: u32) -> WinPrinter {
-        WinPrinter { name: "Kitchen".into(), port: port.into(), status, attributes, jobs: 0 }
+        WinPrinter {
+            name: "Kitchen".into(),
+            port: port.into(),
+            status,
+            attributes,
+            jobs: 0,
+        }
     }
 
     #[test]
@@ -138,19 +169,40 @@ mod tests {
     fn usb_queue_and_pnp_presence_do_not_imply_ready() {
         let p = printer("USB001", 0, 0);
         assert_eq!(classify(&p, None, None, 10).state, PrinterState::Unknown);
-        assert_eq!(classify(&p, Some(true), None, 10).state, PrinterState::Unknown);
-        assert_eq!(classify(&p, Some(false), None, 10).state, PrinterState::Offline);
-        assert_eq!(classify(&p, Some(true), Some(PrinterState::Ready), 10).state, PrinterState::Ready);
-        assert_eq!(classify(&p, Some(true), Some(PrinterState::PaperOut), 10).state, PrinterState::PaperOut);
+        assert_eq!(
+            classify(&p, Some(true), None, 10).state,
+            PrinterState::Unknown
+        );
+        assert_eq!(
+            classify(&p, Some(false), None, 10).state,
+            PrinterState::Offline
+        );
+        assert_eq!(
+            classify(&p, Some(true), Some(PrinterState::Ready), 10).state,
+            PrinterState::Ready
+        );
+        assert_eq!(
+            classify(&p, Some(true), Some(PrinterState::PaperOut), 10).state,
+            PrinterState::PaperOut
+        );
         assert_eq!(classify(&p, None, None, 10).source, Source::Spooler);
         assert_eq!(classify(&p, Some(true), None, 10).source, Source::Pnp);
     }
 
     #[test]
     fn non_usb_spooler_and_unrecognized_ports_are_distinct() {
-        assert_eq!(classify(&printer("IP_192.168.1.20", 0, 0), None, None, 10).state, PrinterState::Ready);
-        assert_eq!(classify(&printer("USB001", 0x10, 0), None, None, 10).state, PrinterState::PaperOut);
-        assert_eq!(classify(&printer("MYSTERY", 0, 0), None, None, 10).state, PrinterState::Unknown);
+        assert_eq!(
+            classify(&printer("IP_192.168.1.20", 0, 0), None, None, 10).state,
+            PrinterState::Ready
+        );
+        assert_eq!(
+            classify(&printer("USB001", 0x10, 0), None, None, 10).state,
+            PrinterState::PaperOut
+        );
+        assert_eq!(
+            classify(&printer("MYSTERY", 0, 0), None, None, 10).state,
+            PrinterState::Unknown
+        );
         assert!(usb_port_hint("USB002, LPT1:"));
         assert!(!usb_port_hint("USBPRINTER"));
         assert!(!usb_port_hint("🖨️USB001"));

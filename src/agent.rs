@@ -327,7 +327,10 @@ impl Agent {
         }
         {
             let mut after = self.test_after.lock().unwrap();
-            if after.get(printer).is_some_and(|previous| previous.elapsed() < Duration::from_secs(10)) {
+            if after
+                .get(printer)
+                .is_some_and(|previous| previous.elapsed() < Duration::from_secs(10))
+            {
                 return Err("Please wait 10 seconds between test prints".into());
             }
             after.insert(printer.to_string(), Instant::now());
@@ -339,32 +342,48 @@ impl Agent {
             }
         }
         let result = (|| {
-            if self.windows_printers.lock().unwrap().as_ref().is_some_and(|list| {
-                list.iter().any(|p| p.name == printer && p.jobs > 0)
-            }) {
+            if self
+                .windows_printers
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|list| list.iter().any(|p| p.name == printer && p.jobs > 0))
+            {
                 return Err("Windows has pending printer jobs".to_string());
             }
             let lock = {
                 let mut locks = self.printer_locks.lock().unwrap();
-                Arc::clone(locks.entry(printer.to_string()).or_insert_with(|| Arc::new(Mutex::new(()))))
+                Arc::clone(
+                    locks
+                        .entry(printer.to_string())
+                        .or_insert_with(|| Arc::new(Mutex::new(()))),
+                )
             };
             let _guard = lock.lock().map_err(|e| e.to_string())?;
             printers::print_raw(printer, b"\x1b@Restora test print\n\n\n\x1dV\x00")
         })();
         self.active_printers.lock().unwrap().remove(printer);
         let at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let error = result.as_ref().err().cloned();
         {
             let mut recent = self.recent.lock().unwrap();
             recent.push_front(Recent {
-                at, printer: printer.to_owned(), kind: "test".into(), order: "Manual test print".into(),
-                state: if result.is_ok() { "printed" } else { "failed" }, error,
+                at,
+                printer: printer.to_owned(),
+                kind: "test".into(),
+                order: "Manual test print".into(),
+                state: if result.is_ok() { "printed" } else { "failed" },
+                error,
             });
             recent.truncate(RECENT);
         }
         self.record_last_result(printer, result.is_ok(), at);
-        if result.is_err() { self.request_printer_refresh(); }
+        if result.is_err() {
+            self.request_printer_refresh();
+        }
         result
     }
 
@@ -457,7 +476,11 @@ impl Agent {
     }
 
     pub fn windows_printers(&self) -> Option<Vec<String>> {
-        self.windows_printers.lock().unwrap().as_ref().map(|p| printers::names(p))
+        self.windows_printers
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|p| printers::names(p))
     }
 
     pub fn set_windows_printers(&self, list: Vec<WinPrinter>) {
@@ -470,19 +493,30 @@ impl Agent {
         present_interfaces: Option<&[String]>,
     ) {
         let checked_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         // A user/installer may explicitly bind a queue to its verified USBPRINT
         // path. No guessing by port number, friendly name, or VID/PID.
         // Failure to inspect PnP never implies the USB interface is absent.
         let bindings: HashMap<String, String> =
             std::fs::read(config::folder().join("printer-usb-bindings.json"))
-                .ok().and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
                 .unwrap_or_default();
-        let health = list.iter().map(|p| {
-            let present = present_interfaces.and_then(|paths| bindings.get(&p.name)
-                .map(|path| paths.iter().any(|interface| interface.eq_ignore_ascii_case(path))));
-            printer_state::classify(p, present, None, checked_at)
-        }).collect();
+        let health = list
+            .iter()
+            .map(|p| {
+                let present = present_interfaces.and_then(|paths| {
+                    bindings.get(&p.name).map(|path| {
+                        paths
+                            .iter()
+                            .any(|interface| interface.eq_ignore_ascii_case(path))
+                    })
+                });
+                printer_state::classify(p, present, None, checked_at)
+            })
+            .collect();
         if let Some(paths) = present_interfaces {
             self.set_pnp_count(paths.len());
         }
