@@ -461,11 +461,31 @@ impl Agent {
     }
 
     pub fn set_windows_printers(&self, list: Vec<WinPrinter>) {
+        self.set_windows_printers_with_pnp(list, None);
+    }
+
+    pub fn set_windows_printers_with_pnp(
+        &self,
+        list: Vec<WinPrinter>,
+        present_interfaces: Option<&[String]>,
+    ) {
         let checked_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let health = list.iter()
-            .map(|p| printer_state::classify(p, None, None, checked_at))
-            .collect();
+        // A user/installer may explicitly bind a queue to its verified USBPRINT
+        // path. No guessing by port number, friendly name, or VID/PID.
+        // Failure to inspect PnP never implies the USB interface is absent.
+        let bindings: HashMap<String, String> =
+            std::fs::read(config::folder().join("printer-usb-bindings.json"))
+                .ok().and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .unwrap_or_default();
+        let health = list.iter().map(|p| {
+            let present = present_interfaces.and_then(|paths| bindings.get(&p.name)
+                .map(|path| paths.iter().any(|interface| interface.eq_ignore_ascii_case(path))));
+            printer_state::classify(p, present, None, checked_at)
+        }).collect();
+        if let Some(paths) = present_interfaces {
+            self.set_pnp_count(paths.len());
+        }
         *self.health.lock().unwrap() = Some(health);
         *self.windows_printers.lock().unwrap() = Some(list);
     }
