@@ -149,7 +149,7 @@ async fn attempt(
 
 /// Deterministic wire revision: timestamps change on every scan but do not
 /// warrant a new PUT unless names, state or reporting source change.
-fn printer_revision(names: &[String], statuses: &[crate::printer_state::PrinterHealth]) -> String {
+fn printer_fingerprint(names: &[String], statuses: &[crate::printer_state::PrinterHealth]) -> String {
     serde_json::to_string(&(
         names,
         statuses
@@ -237,7 +237,7 @@ pub async fn run(agent: Arc<Agent>) {
         // checkedAt changes are intentionally excluded from the revision fingerprint.
         if let Some(names) = agent.windows_printers() {
             let statuses = agent.printer_health().unwrap_or_default();
-            let fingerprint = printer_revision(&names, &statuses);
+            let fingerprint = printer_fingerprint(&names, &statuses);
             if report_due(&last_sent, &fingerprint, reported.elapsed()) {
                 let reply = agent
                     .http
@@ -381,8 +381,8 @@ mod tests {
             source: Source::Spooler,
             checked_at: 100,
         };
-        let first = printer_revision(&names, &[status.clone()]);
-        let second = printer_revision(
+        let first = printer_fingerprint(&names, &[status.clone()]);
+        let second = printer_fingerprint(
             &names,
             &[PrinterHealth {
                 checked_at: 130,
@@ -390,7 +390,7 @@ mod tests {
             }],
         );
         assert_eq!(first, second);
-        let third = printer_revision(
+        let third = printer_fingerprint(
             &names,
             &[PrinterHealth {
                 state: PrinterState::Offline,
