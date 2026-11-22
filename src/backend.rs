@@ -149,7 +149,10 @@ async fn attempt(
 
 /// Deterministic wire revision: timestamps change on every scan but do not
 /// warrant a new PUT unless names, state or reporting source change.
-fn printer_fingerprint(names: &[String], statuses: &[crate::printer_state::PrinterHealth]) -> String {
+fn printer_fingerprint(
+    names: &[String],
+    statuses: &[crate::printer_state::PrinterHealth],
+) -> String {
     serde_json::to_string(&(
         names,
         statuses
