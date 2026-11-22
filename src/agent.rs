@@ -305,7 +305,8 @@ impl Agent {
 
     fn clear_last_results(&self) {
         self.last_results.lock().unwrap().clear();
-        if let Err(error) = std::fs::remove_file(config::folder().join("printer-last-results.json")) {
+        if let Err(error) = std::fs::remove_file(config::folder().join("printer-last-results.json"))
+        {
             if error.kind() != std::io::ErrorKind::NotFound {
                 tracing::warn!("could not clear previous pairing's printer result: {error}");
             }
