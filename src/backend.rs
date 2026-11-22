@@ -169,14 +169,11 @@ fn report_due(previous: &str, next: &str, elapsed: Duration) -> bool {
 
 /// Polling and Windows printer reporting remain responsive while one physical
 /// printer/driver stalls. At most one oldest pending job per printer is active.
-pub async fn run(agent: Arc<Agent>) {
-    let trying = Arc::new(Mutex::new(HashMap::<String, Trying>::new()));
-    let active_printers = agent.active_printers.clone();
+pub async fn monitor_printers(agent: Arc<Agent>) {
     let mut reported = Instant::now() - REPORT_PRINTERS;
     let mut scanned = Instant::now() - Duration::from_secs(30);
     let mut last_sent = String::new();
     let mut last_pairing = String::new();
-    let mut printer_revision = String::new();
 
     loop {
         tokio::time::sleep(POLL).await;
@@ -275,6 +272,22 @@ pub async fn run(agent: Arc<Agent>) {
             }
         }
 
+    }
+}
+
+/// Job dispatch stays independent of printer scanning and status-report I/O.
+/// A slow Winspool driver cannot delay the two-second jobs poll.
+pub async fn run(agent: Arc<Agent>) {
+    let trying = Arc::new(Mutex::new(HashMap::<String, Trying>::new()));
+    let active_printers = agent.active_printers.clone();
+    let mut printer_revision = String::new();
+
+    loop {
+        tokio::time::sleep(POLL).await;
+        let Some(config) = agent.config.lock().unwrap().clone() else {
+            continue;
+        };
+        let url = format!("{}/print-agent", config.api);
         let response = match agent
             .http
             .get(format!("{url}/jobs"))
