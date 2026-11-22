@@ -1,0 +1,27 @@
+name: Experiment - refresh Windows WinRT Cargo lock
+on:
+  push:
+    branches: [exp/printer-wpp-bindings]
+permissions:
+  contents: write
+jobs:
+  update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: exp/printer-wpp-bindings
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Upgrade exactly windows to 0.62.2
+        run: |
+          cargo update -p windows --precise 0.62.2
+          cargo check --locked
+      - name: Commit the generated Cargo.lock only
+        run: |
+          git add Cargo.lock
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build: resolve windows 0.62.2 WinRT dependencies"
+          git push origin HEAD:exp/printer-wpp-bindings
