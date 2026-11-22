@@ -147,6 +147,23 @@ async fn attempt(
     }
 }
 
+/// Deterministic wire revision: timestamps change on every scan but do not
+/// warrant a new PUT unless names, state or reporting source change.
+fn printer_revision(names: &[String], statuses: &[crate::printer_state::PrinterHealth]) -> String {
+    serde_json::to_string(&(
+        names,
+        statuses
+            .iter()
+            .map(|p| (&p.system_name, p.state, p.source))
+            .collect::<Vec<_>>(),
+    ))
+    .unwrap_or_default()
+}
+
+fn report_due(previous: &str, next: &str, elapsed: Duration) -> bool {
+    previous != next || elapsed >= REPORT_PRINTERS
+}
+
 /// Polling and Windows printer reporting remain responsive while one physical
 /// printer/driver stalls. At most one oldest pending job per printer is active.
 pub async fn run(agent: Arc<Agent>) {
@@ -220,15 +237,8 @@ pub async fn run(agent: Arc<Agent>) {
         // checkedAt changes are intentionally excluded from the revision fingerprint.
         if let Some(names) = agent.windows_printers() {
             let statuses = agent.printer_health().unwrap_or_default();
-            let fingerprint = serde_json::to_string(&(
-                &names,
-                statuses
-                    .iter()
-                    .map(|p| (&p.system_name, p.state, p.source))
-                    .collect::<Vec<_>>(),
-            ))
-            .unwrap_or_default();
-            if fingerprint != last_sent || reported.elapsed() >= REPORT_PRINTERS {
+            let fingerprint = printer_revision(&names, &statuses);
+            if report_due(&last_sent, &fingerprint, reported.elapsed()) {
                 let reply = agent
                     .http
                     .put(format!("{url}/printers"))
@@ -359,6 +369,27 @@ pub async fn run(agent: Arc<Agent>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reporting_revision_ignores_timestamp_but_not_status() {
+        use crate::printer_state::{PrinterHealth, PrinterState, Source};
+        let names = vec!["Kitchen".to_owned()];
+        let status = PrinterHealth {
+            system_name: "Kitchen".into(),
+            port: "USB001".into(),
+            state: PrinterState::Unknown,
+            source: Source::Spooler,
+            checked_at: 100,
+        };
+        let first = printer_revision(&names, &[status.clone()]);
+        let second = printer_revision(&names, &[PrinterHealth { checked_at: 130, ..status.clone() }]);
+        assert_eq!(first, second);
+        let third = printer_revision(&names, &[PrinterHealth { state: PrinterState::Offline, ..status }]);
+        assert_ne!(first, third);
+        assert!(!report_due(&first, &second, Duration::from_secs(30)));
+        assert!(report_due(&first, &second, Duration::from_secs(300)));
+        assert!(report_due(&first, &third, Duration::from_secs(1)));
+    }
 
     #[test]
     fn dispatches_oldest_job_for_each_printer_without_starving_other_printers() {
