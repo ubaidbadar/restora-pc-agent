@@ -354,6 +354,9 @@ impl Agent {
 
     /// Explicit user-initiated RAW test; never touches the printed.log dedupe journal.
     pub fn test_print(&self, printer: &str) -> Result<(), String> {
+        if self.wpp() == Some(true) {
+            return Err("Windows Protected Print Mode blocks legacy RAW test printing".into());
+        }
         if self.active_printers.lock().unwrap().contains(printer) {
             return Err("A real job is printing on this printer".into());
         }
