@@ -73,7 +73,8 @@ pub fn spooler_state(status: u32, attributes: u32) -> PrinterState {
 /// A USB name must NEVER be joined to a PnP interface by enumeration order or VID:PID.
 pub fn usb_port_hint(port: &str) -> bool {
     port.split(',').map(str::trim).any(|p| {
-        p.len() >= 4 && p[..3].eq_ignore_ascii_case("USB") && p[3..].chars().all(|c| c.is_ascii_digit())
+        p.get(..3).is_some_and(|head| head.eq_ignore_ascii_case("USB"))
+            && p.get(3..).is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
     })
 }
 
@@ -152,5 +153,6 @@ mod tests {
         assert_eq!(classify(&printer("MYSTERY", 0, 0), None, None, 10).state, PrinterState::Unknown);
         assert!(usb_port_hint("USB002, LPT1:"));
         assert!(!usb_port_hint("USBPRINTER"));
+        assert!(!usb_port_hint("🖨️USB001"));
     }
 }
