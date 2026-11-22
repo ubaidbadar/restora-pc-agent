@@ -276,27 +276,26 @@ impl Agent {
     }
 
     fn record_last_result(&self, printer: &str, ok: bool, at: u64) {
-        let snapshot = {
-            let mut results = self.last_results.lock().unwrap();
-            results.insert(printer.to_string(), LastPrintResult { ok, at });
-            results.clone()
-        };
-        if let Err(error) = Self::persist_last_results(&snapshot) {
+        // Hold the map lock through the atomic rename: concurrent jobs on distinct
+        // printers must not overwrite each other's state with an older snapshot.
+        let mut results = self.last_results.lock().unwrap();
+        results.insert(printer.to_string(), LastPrintResult { ok, at });
+        if let Err(error) = Self::persist_last_results(&results) {
             tracing::warn!("could not persist printer's last result: {error}");
         }
     }
 
     fn persist_last_results(results: &HashMap<String, LastPrintResult>) -> Result<(), String> {
+        use std::io::Write;
         let path = config::folder().join("printer-last-results.json");
         let temp = path.with_extension("json.tmp");
         let bytes = serde_json::to_vec(results).map_err(|e| e.to_string())?;
-        std::fs::write(&temp, bytes).map_err(|e| e.to_string())?;
-        // Windows cannot atomically replace an open file using plain rename.
-        // Prefer retaining the last known state to changing printed.log/dedupe behavior.
-        #[cfg(windows)]
-        if path.exists() {
-            let _ = std::fs::remove_file(&path);
-        }
+        let mut file = std::fs::File::create(&temp).map_err(|e| e.to_string())?;
+        file.write_all(&bytes).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        // std::fs::rename uses the platform replacement operation; never delete
+        // the previous result before the replacement is prepared.
         std::fs::rename(temp, path).map_err(|e| e.to_string())
     }
 
