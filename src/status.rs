@@ -264,6 +264,28 @@ pub fn snapshot(agent: &Agent) -> Snapshot {
 mod tests {
     use super::*;
     #[test]
+    fn printer_row_preserves_legacy_fields_and_adds_evidence() {
+        let row = PrinterRow {
+            name: "Kitchen".into(),
+            system_name: "EPSON TM".into(),
+            prints: vec!["kitchen".into()],
+            found: Some(true),
+            last_ok: None,
+            unused: false,
+            state: PrinterState::Unknown,
+            source: Some(Source::Spooler),
+            checked_at: Some(123),
+        };
+        let json = serde_json::to_value(row).unwrap();
+        for key in ["name", "systemName", "prints", "found", "lastOk", "unused", "state", "source", "checkedAt"] {
+            assert!(json.get(key).is_some(), "missing {key}");
+        }
+        assert_eq!(json["found"], true);
+        assert!(json["lastOk"].is_null());
+        assert_eq!(json["state"], "unknown");
+    }
+
+    #[test]
     fn usb_unknown_never_gets_a_green_headline() {
         assert_eq!(
             headline(true, true, &[PrinterState::Unknown], false, true, None).tone,
