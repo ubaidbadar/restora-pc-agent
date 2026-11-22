@@ -9,6 +9,11 @@ mod launch;
 mod local;
 mod logo;
 mod printers;
+mod printer_state;
+#[cfg(windows)]
+mod printer_events;
+#[cfg(windows)]
+mod usb_pnp;
 #[cfg(windows)]
 mod pwa;
 mod slips;
@@ -112,6 +117,8 @@ fn main() {
         .filter(|o| !o.is_empty())
         .collect();
     let agent = Arc::new(agent::Agent::new());
+    #[cfg(windows)]
+    printer_events::start(agent.refresh_pending.clone());
     let runtime = tokio::runtime::Runtime::new().expect("the async runtime");
 
     let listener = match runtime.block_on(tokio::net::TcpListener::bind(local::ADDRESS)) {
