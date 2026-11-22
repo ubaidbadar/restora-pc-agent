@@ -59,7 +59,13 @@ pub fn spooler_state(status: u32, attributes: u32) -> PrinterState {
     if status & PAPER_OUT != 0 {
         PrinterState::PaperOut
     } else if status
-        & (PAPER_JAM | PAPER_PROBLEM | DOOR_OPEN | ERROR | USER_INTERVENTION | NO_TONER | NOT_AVAILABLE)
+        & (PAPER_JAM
+            | PAPER_PROBLEM
+            | DOOR_OPEN
+            | ERROR
+            | USER_INTERVENTION
+            | NO_TONER
+            | NOT_AVAILABLE)
         != 0
     {
         PrinterState::Error
