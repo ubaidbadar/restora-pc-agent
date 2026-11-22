@@ -59,13 +59,13 @@ pub fn spooler_state(status: u32, attributes: u32) -> PrinterState {
     if status & PAPER_OUT != 0 {
         PrinterState::PaperOut
     } else if status
-        & (PAPER_JAM | PAPER_PROBLEM | DOOR_OPEN | ERROR | USER_INTERVENTION | NO_TONER)
+        & (PAPER_JAM | PAPER_PROBLEM | DOOR_OPEN | ERROR | USER_INTERVENTION | NO_TONER | NOT_AVAILABLE)
         != 0
     {
         PrinterState::Error
     } else if attributes & WORK_OFFLINE != 0 || status & (OFFLINE | SERVER_OFFLINE) != 0 {
         PrinterState::Offline
-    } else if status & (NOT_AVAILABLE | PAUSED | SERVER_UNKNOWN) != 0 {
+    } else if status & (PAUSED | SERVER_UNKNOWN) != 0 {
         PrinterState::Unknown
     } else {
         PrinterState::Ready
@@ -160,7 +160,7 @@ mod tests {
         for flag in [0x8, 0x40, 0x0040_0000, 0x2, 0x0010_0000, 0x0004_0000] {
             assert_eq!(spooler_state(flag, 0), PrinterState::Error);
         }
-        assert_eq!(spooler_state(0x1000, 0), PrinterState::Unknown);
+        assert_eq!(spooler_state(0x1000, 0), PrinterState::Error);
         assert_eq!(spooler_state(1, 0), PrinterState::Unknown);
         assert_eq!(spooler_state(0x10 | 0x80, 0), PrinterState::PaperOut);
     }
