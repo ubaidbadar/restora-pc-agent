@@ -20,6 +20,7 @@ mod startup;
 mod status;
 #[cfg(windows)]
 mod usb_pnp;
+mod windows_environment;
 
 use std::sync::{Arc, Mutex};
 
