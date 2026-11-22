@@ -152,6 +152,7 @@ async fn attempt(
 fn printer_fingerprint(
     names: &[String],
     statuses: &[crate::printer_state::PrinterHealth],
+    wpp: Option<bool>,
 ) -> String {
     serde_json::to_string(&(
         names,
@@ -159,6 +160,7 @@ fn printer_fingerprint(
             .iter()
             .map(|p| (&p.system_name, p.state, p.source))
             .collect::<Vec<_>>(),
+        wpp,
     ))
     .unwrap_or_default()
 }
@@ -206,12 +208,13 @@ pub async fn monitor_printers(agent: Arc<Agent>) {
                         };
                         #[cfg(not(windows))]
                         let interfaces: Option<Vec<String>> = None;
-                        (queues, interfaces)
+                        (queues, interfaces, crate::windows_environment::effective_wpp())
                     }),
                 )
                 .await;
-                if let Ok(Ok((Ok(queues), interfaces))) = discovered {
+                if let Ok(Ok((Ok(queues), interfaces, wpp))) = discovered {
                     agent.set_windows_printers_with_pnp(queues, interfaces.as_deref());
+                    agent.set_wpp(wpp);
                 } else {
                     // A timed-out spawn_blocking worker is still executing. The atomic
                     // gate prevents unbounded additional blocked Win32 calls.
@@ -239,7 +242,7 @@ pub async fn monitor_printers(agent: Arc<Agent>) {
         // checkedAt changes are intentionally excluded from the revision fingerprint.
         if let Some(names) = agent.windows_printers() {
             let statuses = agent.printer_health().unwrap_or_default();
-            let fingerprint = printer_fingerprint(&names, &statuses);
+            let fingerprint = printer_fingerprint(&names, &statuses, agent.wpp());
             if report_due(&last_sent, &fingerprint, reported.elapsed()) {
                 let reply = agent
                     .http
@@ -249,7 +252,7 @@ pub async fn monitor_printers(agent: Arc<Agent>) {
                         "version": env!("CARGO_PKG_VERSION"),
                         "printers": names,
                         "printerStatuses": statuses,
-                        "wpp": "unknown",
+                        "wpp": agent.wpp().map(serde_json::Value::Bool).unwrap_or_else(|| serde_json::json!("unknown")),
                     }))
                     .send()
                     .await;
@@ -396,7 +399,7 @@ mod tests {
             source: Source::Spooler,
             checked_at: 100,
         };
-        let first = printer_fingerprint(&names, std::slice::from_ref(&status));
+        let first = printer_fingerprint(&names, std::slice::from_ref(&status), None);
         let second = printer_fingerprint(
             &names,
             &[PrinterHealth {
