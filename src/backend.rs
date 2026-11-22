@@ -259,13 +259,11 @@ pub async fn run(agent: Arc<Agent>) {
                         Ok(answer) => {
                             reported = Instant::now();
                             last_sent = fingerprint;
-                            if let Ok(body) = answer.json::<serde_json::Value>().await {
-                                if body["printers"].is_array() {
-                                    if let Err(error) = agent.set_printers(body["printers"].clone())
-                                    {
-                                        tracing::warn!("{error}");
-                                    }
-                                }
+                            if let Ok(body) = answer.json::<serde_json::Value>().await
+                                && body["printers"].is_array()
+                                && let Err(error) = agent.set_printers(body["printers"].clone())
+                            {
+                                tracing::warn!("{error}");
                             }
                         }
                         Err(error) => tracing::warn!("printer status report rejected: {error}"),
@@ -384,7 +382,7 @@ mod tests {
             source: Source::Spooler,
             checked_at: 100,
         };
-        let first = printer_fingerprint(&names, &[status.clone()]);
+        let first = printer_fingerprint(&names, std::slice::from_ref(&status));
         let second = printer_fingerprint(
             &names,
             &[PrinterHealth {
