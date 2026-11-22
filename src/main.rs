@@ -18,6 +18,7 @@ mod slips;
 #[cfg(windows)]
 mod startup;
 mod status;
+mod windows_environment;
 #[cfg(windows)]
 mod usb_pnp;
 
