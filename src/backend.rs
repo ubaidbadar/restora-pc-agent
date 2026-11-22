@@ -208,7 +208,11 @@ pub async fn monitor_printers(agent: Arc<Agent>) {
                         };
                         #[cfg(not(windows))]
                         let interfaces: Option<Vec<String>> = None;
-                        (queues, interfaces, crate::windows_environment::effective_wpp())
+                        (
+                            queues,
+                            interfaces,
+                            crate::windows_environment::effective_wpp(),
+                        )
                     }),
                 )
                 .await;
@@ -418,8 +422,34 @@ mod tests {
             None,
         );
         assert_ne!(first, third);
-        assert_ne!(first, printer_fingerprint(&names, &[PrinterHealth { state: PrinterState::Unknown, source: Source::Spooler, system_name: "Kitchen".into(), port: "USB001".into(), checked_at: 100 }], Some(true)));
-        assert_ne!(first, printer_fingerprint(&names, &[PrinterHealth { state: PrinterState::Unknown, source: Source::Spooler, system_name: "Kitchen".into(), port: "USB001".into(), checked_at: 100 }], Some(false)));
+        assert_ne!(
+            first,
+            printer_fingerprint(
+                &names,
+                &[PrinterHealth {
+                    state: PrinterState::Unknown,
+                    source: Source::Spooler,
+                    system_name: "Kitchen".into(),
+                    port: "USB001".into(),
+                    checked_at: 100
+                }],
+                Some(true)
+            )
+        );
+        assert_ne!(
+            first,
+            printer_fingerprint(
+                &names,
+                &[PrinterHealth {
+                    state: PrinterState::Unknown,
+                    source: Source::Spooler,
+                    system_name: "Kitchen".into(),
+                    port: "USB001".into(),
+                    checked_at: 100
+                }],
+                Some(false)
+            )
+        );
         assert!(!report_due(&first, &second, Duration::from_secs(30)));
         assert!(report_due(&first, &second, Duration::from_secs(300)));
         assert!(report_due(&first, &third, Duration::from_secs(1)));
