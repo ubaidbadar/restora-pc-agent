@@ -61,9 +61,13 @@ def run(executable, paired):
                 snapshot = json.loads(raw)
                 assert snapshot["paired"] == paired, snapshot
                 assert snapshot["version"] == VERSION, snapshot
+                assert snapshot["wpp"] in ("unknown", True, False), snapshot
+                assert isinstance(snapshot["printers"], list), snapshot
                 assert b"smoke-fixture-not-a-credential" not in raw
                 assert request("/status", headers={"Host": "attacker.example"})[0] == 403
                 assert request("/print", "POST", body={})[0] == 403
+                assert request("/test-print", "POST", body={})[0] == 403
+                assert request("/test-print", "POST", {"Origin": "https://attacker.example"}, {})[0] == 403
                 assert request("/print", "POST", {"Origin": "https://attacker.example"}, {})[0] == 403
                 code, headers, _ = request("/status", "OPTIONS", {
                     "Origin": ORIGIN, "Access-Control-Request-Method": "GET",
@@ -84,6 +88,12 @@ def run(executable, paired):
                 assert code == 403, (code, raw)
                 expected = "different Restora branch" if paired else "Connect this agent"
                 assert expected in json.loads(raw)["message"]
+                # The explicit test route must reject unpaired or wrong-branch
+                # calls before any RAW data reaches a physical printer.
+                code, _, raw = request("/test-print", "POST", {
+                    "Origin": ORIGIN, "Content-Type": "application/json",
+                }, {"branchId": "wrong-branch", "printer": "never-print"})
+                assert code == 403, (code, raw)
             except BaseException:
                 log.flush()
                 log.seek(0)
