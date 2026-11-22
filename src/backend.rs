@@ -189,23 +189,20 @@ pub async fn run(agent: Arc<Agent>) {
                         let _guard = ClearBusy(busy);
                         let queues = printers::list();
                         #[cfg(windows)]
-                        let pnp_count = match crate::usb_pnp::list_present() {
-                            Ok(interfaces) => Some(interfaces.len()),
+                        let interfaces = match crate::usb_pnp::list_present() {
+                            Ok(interfaces) => Some(interfaces),
                             Err(error) => {
                                 tracing::warn!("USBPRINT PnP discovery failed: {error}");
                                 None
                             }
                         };
                         #[cfg(not(windows))]
-                        let pnp_count: Option<usize> = None;
-                        (queues, pnp_count)
+                        let interfaces: Option<Vec<String>> = None;
+                        (queues, interfaces)
                     }),
                 ).await;
-                if let Ok(Ok((Ok(queues), pnp_count))) = discovered {
-                    agent.set_windows_printers(queues);
-                    if let Some(count) = pnp_count {
-                        agent.set_pnp_count(count);
-                    }
+                if let Ok(Ok((Ok(queues), interfaces))) = discovered {
+                    agent.set_windows_printers_with_pnp(queues, interfaces.as_deref());
                 } else {
                     // A timed-out spawn_blocking worker is still executing. The atomic
                     // gate prevents unbounded additional blocked Win32 calls.
