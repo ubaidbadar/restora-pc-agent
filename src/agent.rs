@@ -44,6 +44,7 @@ pub struct Agent {
     windows_printers: Mutex<Option<Vec<WinPrinter>>>,
     health: Mutex<Option<Vec<PrinterHealth>>>,
     pnp_count: Mutex<Option<usize>>,
+    wpp: Mutex<Option<bool>>,
     pub refresh_pending: Arc<AtomicBool>,
     pub discovery_busy: Arc<AtomicBool>,
     /// Shared with the remote job dispatcher and explicit test printing.
@@ -137,6 +138,7 @@ impl Agent {
             windows_printers: Mutex::new(None),
             health: Mutex::new(None),
             pnp_count: Mutex::new(None),
+            wpp: Mutex::new(None),
             refresh_pending: Arc::new(AtomicBool::new(true)),
             discovery_busy: Arc::new(AtomicBool::new(false)),
             active_printers: Arc::new(Mutex::new(HashSet::new())),
@@ -332,6 +334,14 @@ impl Agent {
 
     pub fn set_pnp_count(&self, count: usize) {
         *self.pnp_count.lock().unwrap() = Some(count);
+    }
+
+    pub fn wpp(&self) -> Option<bool> {
+        *self.wpp.lock().unwrap()
+    }
+
+    pub fn set_wpp(&self, state: Option<bool>) {
+        *self.wpp.lock().unwrap() = state;
     }
 
     pub fn pnp_count(&self) -> Option<usize> {
@@ -563,6 +573,7 @@ impl Agent {
         *self.windows_printers.lock().unwrap() = None;
         *self.health.lock().unwrap() = None;
         *self.pnp_count.lock().unwrap() = None;
+        *self.wpp.lock().unwrap() = None;
         self.request_printer_refresh();
         if let Err(error) = self.set_printers(serde_json::json!([])) {
             tracing::error!("could not clear offline printer settings: {error}");
