@@ -101,6 +101,28 @@ pub fn non_usb_port_known(port: &str) -> bool {
         })
 }
 
+
+/// Resolve only an explicitly configured, one-to-one USBPRINT identity.
+/// Multiple queues bound to the same device (or empty paths) are ambiguous;
+/// that must NEVER be interpreted as a definitive physical absence.
+pub fn bound_usb_presence(
+    queue: &str,
+    bindings: &std::collections::HashMap<String, String>,
+    present_interfaces: &[String],
+) -> Option<bool> {
+    let path = bindings.get(queue)?.trim();
+    if path.is_empty()
+        || !path.starts_with(r"\\?\")
+        || !path.to_ascii_lowercase().contains("usb#")
+        || bindings.iter().any(|(other, candidate)| {
+            other != queue && candidate.trim().eq_ignore_ascii_case(path)
+        })
+    {
+        return None;
+    }
+    Some(present_interfaces.iter().any(|interface| interface.eq_ignore_ascii_case(path)))
+}
+
 /// Fail closed for USB and for unclassified transport. PnP inventory alone is not enough.
 /// A future verified, one-to-one queue binding may provide positive/negative PnP evidence;
 /// *present* is still Unknown without real-time printer protocol evidence.
