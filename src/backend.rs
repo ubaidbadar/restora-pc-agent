@@ -4,7 +4,10 @@ use crate::{printers, slips};
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -420,7 +423,10 @@ mod tests {
             active2.fetch_sub(1, Ordering::AcqRel);
         });
         let elapsed = tokio::time::timeout(Duration::from_millis(5), abandoned).await;
-        assert!(elapsed.is_err(), "synthetic slow worker should exceed timeout");
+        assert!(
+            elapsed.is_err(),
+            "synthetic slow worker should exceed timeout"
+        );
         for _ in 0..300 {
             assert!(DiscoveryPermit::acquire(busy.clone()).is_none());
         }
@@ -428,9 +434,13 @@ mod tests {
         while busy.load(Ordering::Acquire) && start.elapsed() < Duration::from_secs(3) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert!(!busy.load(Ordering::Acquire), "worker must clear permit at exit");
+        assert!(
+            !busy.load(Ordering::Acquire),
+            "worker must clear permit at exit"
+        );
         assert_eq!(active.load(Ordering::Acquire), 0);
-        let again = DiscoveryPermit::acquire(busy.clone()).expect("new scan allowed after worker exit");
+        let again =
+            DiscoveryPermit::acquire(busy.clone()).expect("new scan allowed after worker exit");
         drop(again);
         assert!(!busy.load(Ordering::Acquire));
     }
