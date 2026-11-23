@@ -32,7 +32,7 @@ function Note([string]$key, [string]$detail) {
 }
 function Get-Names {
     $response = Invoke-RestMethod -Uri "$base/printers" -TimeoutSec 2
-    return ,@($response)
+    return @($response)
 }
 function Get-Row([string]$name) {
     $status = Invoke-RestMethod -Uri "$base/status" -TimeoutSec 2
@@ -194,7 +194,7 @@ try {
     $report.result = 'passed'
 } catch {
     $report.result = 'failed'
-    $report.error = $_.Exception.ToString()
+    $report["error"] = $_.Exception.ToString()
     Write-Error -ErrorAction Continue "Windows print integration failed: $_"
     throw
 } finally {
