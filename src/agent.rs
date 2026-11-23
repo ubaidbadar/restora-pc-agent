@@ -557,11 +557,7 @@ impl Agent {
             .iter()
             .map(|p| {
                 let present = present_interfaces.and_then(|paths| {
-                    bindings.get(&p.name).map(|path| {
-                        paths
-                            .iter()
-                            .any(|interface| interface.eq_ignore_ascii_case(path))
-                    })
+                    printer_state::bound_usb_presence(&p.name, &bindings, paths)
                 });
                 printer_state::classify(p, present, None, checked_at)
             })
