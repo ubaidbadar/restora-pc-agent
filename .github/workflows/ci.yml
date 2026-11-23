@@ -6,6 +6,29 @@ on:
     branches: [main]
 
 jobs:
+  format-pr-phase3:
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/printer-status-phase3'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/printer-status-phase3
+          persist-credentials: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply rustfmt to the draft branch only
+        run: |
+          cargo fmt --all
+          git add src
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style: rustfmt extended printer status tests"
+          git push origin HEAD:feat/printer-status-phase3
+
   test:
     runs-on: ubuntu-latest
     steps:
