@@ -4,7 +4,7 @@ use crate::{printers, slips};
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, atomic::Ordering},
+    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
     time::{Duration, Instant},
 };
 
@@ -171,6 +171,26 @@ fn report_due(previous: &str, next: &str, elapsed: Duration) -> bool {
 
 /// Polling and Windows printer reporting remain responsive while one physical
 /// printer/driver stalls. At most one oldest pending job per printer is active.
+/// The permit lives on the synchronous worker, not on the timed-out async
+/// caller. Dropping a Tokio JoinHandle does not cancel a blocking Win32 call.
+struct DiscoveryPermit(Arc<AtomicBool>);
+
+impl DiscoveryPermit {
+    fn acquire(busy: Arc<AtomicBool>) -> Option<Self> {
+        if busy.swap(true, Ordering::AcqRel) {
+            None
+        } else {
+            Some(Self(busy))
+        }
+    }
+}
+
+impl Drop for DiscoveryPermit {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 pub async fn monitor_printers(agent: Arc<Agent>) {
     let mut reported = Instant::now() - REPORT_PRINTERS;
     let mut scanned = Instant::now() - Duration::from_secs(30);
@@ -185,18 +205,11 @@ pub async fn monitor_printers(agent: Arc<Agent>) {
             || agent.refresh_pending.swap(false, Ordering::AcqRel);
         if must_scan {
             scanned = Instant::now();
-            if !agent.discovery_busy.swap(true, Ordering::AcqRel) {
-                let busy = agent.discovery_busy.clone();
+            if let Some(permit) = DiscoveryPermit::acquire(agent.discovery_busy.clone()) {
                 let discovered = tokio::time::timeout(
                     Duration::from_secs(5),
                     tokio::task::spawn_blocking(move || {
-                        struct ClearBusy(Arc<std::sync::atomic::AtomicBool>);
-                        impl Drop for ClearBusy {
-                            fn drop(&mut self) {
-                                self.0.store(false, Ordering::Release);
-                            }
-                        }
-                        let _guard = ClearBusy(busy);
+                        let _permit = permit;
                         let queues = printers::list();
                         #[cfg(windows)]
                         let interfaces = match crate::usb_pnp::list_present() {
@@ -391,6 +404,36 @@ pub async fn run(agent: Arc<Agent>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn timed_out_blocking_win32_worker_keeps_exclusive_discovery_permit() {
+        // A timeout drops the JoinHandle but not the native worker. A second
+        // scan MUST NOT start until the simulated slow driver exits.
+        let busy = Arc::new(AtomicBool::new(false));
+        let active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let permit = DiscoveryPermit::acquire(busy.clone()).expect("first worker acquired");
+        let active2 = active.clone();
+        let abandoned = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            active2.fetch_add(1, Ordering::AcqRel);
+            std::thread::sleep(Duration::from_millis(120));
+            active2.fetch_sub(1, Ordering::AcqRel);
+        });
+        let elapsed = tokio::time::timeout(Duration::from_millis(5), abandoned).await;
+        assert!(elapsed.is_err(), "synthetic slow worker should exceed timeout");
+        for _ in 0..300 {
+            assert!(DiscoveryPermit::acquire(busy.clone()).is_none());
+        }
+        let start = Instant::now();
+        while busy.load(Ordering::Acquire) && start.elapsed() < Duration::from_secs(3) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(!busy.load(Ordering::Acquire), "worker must clear permit at exit");
+        assert_eq!(active.load(Ordering::Acquire), 0);
+        let again = DiscoveryPermit::acquire(busy.clone()).expect("new scan allowed after worker exit");
+        drop(again);
+        assert!(!busy.load(Ordering::Acquire));
+    }
 
     #[test]
     fn reporting_revision_ignores_timestamp_but_not_status() {
