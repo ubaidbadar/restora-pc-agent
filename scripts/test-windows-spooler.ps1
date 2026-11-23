@@ -155,6 +155,28 @@ try {
     Until 'deleted USB-like queue disappears' { (Get-Names) -notcontains $nameUsb } 50
     Note 'event_or_fallback_removal' 'Removed printer disappears from cache without restarting agent'
 
+    # Fault injection against the REAL OS service, not a mocked status flag.
+    # This is safe only because the CI runner is disposable and dedicated.
+    try {
+        Stop-Service -Name Spooler -Force -ErrorAction Stop
+        (Get-Service Spooler).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        for ($i=0; $i -lt 20; $i++) {
+            $snapshot = Invoke-RestMethod -Uri "$base/status" -TimeoutSec 2
+            if (-not $snapshot.version) { throw 'Cached GET failed with Print Spooler stopped' }
+        }
+        $clock.Stop()
+        if ($clock.Elapsed.TotalSeconds -gt 8) {
+            throw "Cached /status blocked by stopped spooler: $($clock.Elapsed.TotalSeconds)s"
+        }
+        Note 'spooler_stopped' "Agent /status served 20 snapshots in $([math]::Round($clock.Elapsed.TotalSeconds, 2)) seconds without Windows Print Spooler"
+    } finally {
+        Start-Service Spooler -ErrorAction Stop
+        (Get-Service Spooler).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+    }
+    Until 'local queue visible after spooler restart' { (Get-Names) -contains $nameLocal } 50
+    Note 'spooler_restart' 'Actual Windows Print Spooler stop/restart completed; agent stayed responsive'
+
     # The WPP query is a real WinRT call. Windows Server 2022 is expected to
     # return unknown; it must never manufacture false from missing policy keys.
     $snapshot = Invoke-RestMethod -Uri "$base/status" -TimeoutSec 2
