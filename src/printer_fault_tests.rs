@@ -155,7 +155,7 @@ fn deterministic_randomized_fault_and_serialization_fuzz() {
         let reread: PrinterHealth = serde_json::from_slice(&wire).unwrap();
         assert_eq!(health, reread);
     }
-    for invalid in [b"".as_slice(), b"{" , b"{\"state\":\"ready\"}", b"[]"] {
+    for invalid in [b"".as_slice(), b"{".as_slice(), b"{\"state\":\"ready\"}".as_slice(), b"[]".as_slice()] {
         assert!(serde_json::from_slice::<PrinterHealth>(invalid).is_err());
     }
 }
