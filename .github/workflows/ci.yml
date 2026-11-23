@@ -25,6 +25,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Check explicit Windows MSVC target and resolved Win32 features
+        shell: pwsh
+        run: cargo check --locked --target x86_64-pc-windows-msvc
       # The same Windows release gate maintainers run locally: formatting,
       # clippy, unit/integration tests (including DPAPI), then release build.
       - name: Verify Windows release candidate
@@ -129,4 +132,28 @@ jobs:
         with:
           name: restora-pc-agent-windows
           path: target/release/restora-pc-agent.exe
+          retention-days: 30
+
+  windows-spooler-integration:
+    name: Real Windows spooler with disposable virtual queues (no printer)
+    needs: windows
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: restora-pc-agent-windows
+          path: .ci-agent
+      - name: Exercise live queue discovery, USB false-ready, pause/resume and events
+        shell: pwsh
+        run: |
+          ./scripts/test-windows-spooler.ps1 -Executable .ci-agent/restora-pc-agent.exe -ReportPath printer-integration-report.json
+      - name: Upload actual spooler evidence (including on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restora-windows-spooler-evidence
+          path: printer-integration-report.json
+          if-no-files-found: warn
           retention-days: 30

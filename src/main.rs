@@ -8,6 +8,11 @@ mod escpos;
 mod launch;
 mod local;
 mod logo;
+#[cfg(windows)]
+mod printer_events;
+#[cfg(test)]
+mod printer_fault_tests;
+mod printer_state;
 mod printers;
 #[cfg(windows)]
 mod pwa;
@@ -15,6 +20,9 @@ mod slips;
 #[cfg(windows)]
 mod startup;
 mod status;
+#[cfg(windows)]
+mod usb_pnp;
+mod windows_environment;
 
 use std::sync::{Arc, Mutex};
 
@@ -112,6 +120,8 @@ fn main() {
         .filter(|o| !o.is_empty())
         .collect();
     let agent = Arc::new(agent::Agent::new());
+    #[cfg(windows)]
+    printer_events::start(agent.refresh_pending.clone());
     let runtime = tokio::runtime::Runtime::new().expect("the async runtime");
 
     let listener = match runtime.block_on(tokio::net::TcpListener::bind(local::ADDRESS)) {
@@ -138,6 +148,7 @@ fn main() {
     tracing::info!("listening on http://{}", local::ADDRESS);
     let paired = agent.paired();
     runtime.spawn(backend::run(agent.clone()));
+    runtime.spawn(backend::monitor_printers(agent.clone()));
     runtime.spawn(async move {
         axum::serve(listener, local::router(agent, origins))
             .await

@@ -4,7 +4,10 @@ use crate::{printers, slips};
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, atomic::Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -147,12 +150,158 @@ async fn attempt(
     }
 }
 
+/// Deterministic wire revision: timestamps change on every scan but do not
+/// warrant a new PUT unless names, state or reporting source change.
+fn printer_fingerprint(
+    names: &[String],
+    statuses: &[crate::printer_state::PrinterHealth],
+    wpp: Option<bool>,
+) -> String {
+    serde_json::to_string(&(
+        names,
+        statuses
+            .iter()
+            .map(|p| (&p.system_name, p.state, p.source))
+            .collect::<Vec<_>>(),
+        wpp,
+    ))
+    .unwrap_or_default()
+}
+
+fn report_due(previous: &str, next: &str, elapsed: Duration) -> bool {
+    previous != next || elapsed >= REPORT_PRINTERS
+}
+
 /// Polling and Windows printer reporting remain responsive while one physical
 /// printer/driver stalls. At most one oldest pending job per printer is active.
+/// The permit lives on the synchronous worker, not on the timed-out async
+/// caller. Dropping a Tokio JoinHandle does not cancel a blocking Win32 call.
+struct DiscoveryPermit(Arc<AtomicBool>);
+
+impl DiscoveryPermit {
+    fn acquire(busy: Arc<AtomicBool>) -> Option<Self> {
+        if busy.swap(true, Ordering::AcqRel) {
+            None
+        } else {
+            Some(Self(busy))
+        }
+    }
+}
+
+impl Drop for DiscoveryPermit {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+pub async fn monitor_printers(agent: Arc<Agent>) {
+    let mut reported = Instant::now() - REPORT_PRINTERS;
+    let mut scanned = Instant::now() - Duration::from_secs(30);
+    let mut last_sent = String::new();
+    let mut last_pairing = String::new();
+
+    loop {
+        tokio::time::sleep(POLL).await;
+        // Poll every 30 seconds as a fallback; Windows events and print failures set
+        // refresh_pending for the next loop (normally within two seconds).
+        let must_scan = scanned.elapsed() >= Duration::from_secs(30)
+            || agent.refresh_pending.swap(false, Ordering::AcqRel);
+        if must_scan {
+            scanned = Instant::now();
+            if let Some(permit) = DiscoveryPermit::acquire(agent.discovery_busy.clone()) {
+                let discovered = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    tokio::task::spawn_blocking(move || {
+                        let _permit = permit;
+                        let queues = printers::list();
+                        #[cfg(windows)]
+                        let interfaces = match crate::usb_pnp::list_present() {
+                            Ok(interfaces) => Some(interfaces),
+                            Err(error) => {
+                                tracing::warn!("USBPRINT PnP discovery failed: {error}");
+                                None
+                            }
+                        };
+                        #[cfg(not(windows))]
+                        let interfaces: Option<Vec<String>> = None;
+                        (
+                            queues,
+                            interfaces,
+                            crate::windows_environment::effective_wpp(),
+                        )
+                    }),
+                )
+                .await;
+                if let Ok(Ok((Ok(queues), interfaces, wpp))) = discovered {
+                    agent.set_windows_printers_with_pnp(queues, interfaces.as_deref());
+                    agent.set_wpp(wpp);
+                } else {
+                    // A timed-out spawn_blocking worker is still executing. The atomic
+                    // gate prevents unbounded additional blocked Win32 calls.
+                    tracing::warn!(
+                        "printer discovery failed or timed out; retaining cached evidence"
+                    );
+                }
+            }
+        }
+
+        // Even an unpaired PC must populate the local printer list; pairing
+        // and network reporting remain gated by a valid Restora token.
+        let Some(config) = agent.config.lock().unwrap().clone() else {
+            continue;
+        };
+        let url = format!("{}/print-agent", config.api);
+        if last_pairing != config.token {
+            last_pairing = config.token.clone();
+            last_sent.clear();
+            reported = Instant::now() - REPORT_PRINTERS;
+            agent.request_printer_refresh();
+        }
+
+        // Keep the legacy names array; report status in new optional fields.
+        // checkedAt changes are intentionally excluded from the revision fingerprint.
+        if let Some(names) = agent.windows_printers() {
+            let statuses = agent.printer_health().unwrap_or_default();
+            let fingerprint = printer_fingerprint(&names, &statuses, agent.wpp());
+            if report_due(&last_sent, &fingerprint, reported.elapsed()) {
+                let reply = agent
+                    .http
+                    .put(format!("{url}/printers"))
+                    .bearer_auth(&config.token)
+                    .json(&serde_json::json!({
+                        "version": env!("CARGO_PKG_VERSION"),
+                        "printers": names,
+                        "printerStatuses": statuses,
+                        "wpp": agent.wpp().map(serde_json::Value::Bool).unwrap_or_else(|| serde_json::json!("unknown")),
+                    }))
+                    .send()
+                    .await;
+                match reply {
+                    Ok(answer) => match answer.error_for_status() {
+                        Ok(answer) => {
+                            reported = Instant::now();
+                            last_sent = fingerprint;
+                            if let Ok(body) = answer.json::<serde_json::Value>().await
+                                && body["printers"].is_array()
+                                && let Err(error) = agent.set_printers(body["printers"].clone())
+                            {
+                                tracing::warn!("{error}");
+                            }
+                        }
+                        Err(error) => tracing::warn!("printer status report rejected: {error}"),
+                    },
+                    Err(error) => tracing::warn!("could not report printers: {error}"),
+                }
+            }
+        }
+    }
+}
+
+/// Job dispatch stays independent of printer scanning and status-report I/O.
+/// A slow Winspool driver cannot delay the two-second jobs poll.
 pub async fn run(agent: Arc<Agent>) {
     let trying = Arc::new(Mutex::new(HashMap::<String, Trying>::new()));
-    let active_printers = Arc::new(Mutex::new(HashSet::<String>::new()));
-    let mut reported = Instant::now() - REPORT_PRINTERS;
+    let active_printers = agent.active_printers.clone();
     let mut printer_revision = String::new();
 
     loop {
@@ -161,40 +310,6 @@ pub async fn run(agent: Arc<Agent>) {
             continue;
         };
         let url = format!("{}/print-agent", config.api);
-
-        if reported.elapsed() >= REPORT_PRINTERS {
-            // Printer enumeration can block inside Windows/driver APIs. Keep it off the async runtime and bound the
-            // wait; status and print-job polling must remain responsive even when a driver is unhealthy.
-            reported = Instant::now();
-            let discovered = tokio::time::timeout(
-                Duration::from_secs(5),
-                tokio::task::spawn_blocking(printers::list),
-            )
-            .await;
-            if let Ok(Ok(Ok(names))) = discovered {
-                agent.set_windows_printers(names.clone());
-                let result = agent
-                    .http
-                    .put(format!("{url}/printers"))
-                    .bearer_auth(&config.token)
-                    .json(&serde_json::json!({
-                        "version": env!("CARGO_PKG_VERSION"), "printers": names,
-                    }))
-                    .send()
-                    .await;
-                if let Ok(Ok(answer)) = result.map(|response| response.error_for_status())
-                    && let Ok(body) = answer.json::<serde_json::Value>().await
-                    && let Err(error) = agent.set_printers(body["printers"].clone())
-                {
-                    tracing::warn!("{error}");
-                }
-            } else {
-                tracing::warn!(
-                    "Windows printer discovery failed or timed out; the agent will retry in five minutes"
-                );
-            }
-        }
-
         let response = match agent
             .http
             .get(format!("{url}/jobs"))
@@ -292,6 +407,106 @@ pub async fn run(agent: Arc<Agent>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn timed_out_blocking_win32_worker_keeps_exclusive_discovery_permit() {
+        // A timeout drops the JoinHandle but not the native worker. A second
+        // scan MUST NOT start until the simulated slow driver exits.
+        let busy = Arc::new(AtomicBool::new(false));
+        let active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let permit = DiscoveryPermit::acquire(busy.clone()).expect("first worker acquired");
+        let active2 = active.clone();
+        let abandoned = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            active2.fetch_add(1, Ordering::AcqRel);
+            std::thread::sleep(Duration::from_millis(120));
+            active2.fetch_sub(1, Ordering::AcqRel);
+        });
+        let elapsed = tokio::time::timeout(Duration::from_millis(5), abandoned).await;
+        assert!(
+            elapsed.is_err(),
+            "synthetic slow worker should exceed timeout"
+        );
+        for _ in 0..300 {
+            assert!(DiscoveryPermit::acquire(busy.clone()).is_none());
+        }
+        let start = Instant::now();
+        while busy.load(Ordering::Acquire) && start.elapsed() < Duration::from_secs(3) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            !busy.load(Ordering::Acquire),
+            "worker must clear permit at exit"
+        );
+        assert_eq!(active.load(Ordering::Acquire), 0);
+        let again =
+            DiscoveryPermit::acquire(busy.clone()).expect("new scan allowed after worker exit");
+        drop(again);
+        assert!(!busy.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn reporting_revision_ignores_timestamp_but_not_status() {
+        use crate::printer_state::{PrinterHealth, PrinterState, Source};
+        let names = vec!["Kitchen".to_owned()];
+        let status = PrinterHealth {
+            system_name: "Kitchen".into(),
+            port: "USB001".into(),
+            state: PrinterState::Unknown,
+            source: Source::Spooler,
+            checked_at: 100,
+        };
+        let first = printer_fingerprint(&names, std::slice::from_ref(&status), None);
+        let second = printer_fingerprint(
+            &names,
+            &[PrinterHealth {
+                checked_at: 130,
+                ..status.clone()
+            }],
+            None,
+        );
+        assert_eq!(first, second);
+        let third = printer_fingerprint(
+            &names,
+            &[PrinterHealth {
+                state: PrinterState::Offline,
+                ..status
+            }],
+            None,
+        );
+        assert_ne!(first, third);
+        assert_ne!(
+            first,
+            printer_fingerprint(
+                &names,
+                &[PrinterHealth {
+                    state: PrinterState::Unknown,
+                    source: Source::Spooler,
+                    system_name: "Kitchen".into(),
+                    port: "USB001".into(),
+                    checked_at: 100
+                }],
+                Some(true)
+            )
+        );
+        assert_ne!(
+            first,
+            printer_fingerprint(
+                &names,
+                &[PrinterHealth {
+                    state: PrinterState::Unknown,
+                    source: Source::Spooler,
+                    system_name: "Kitchen".into(),
+                    port: "USB001".into(),
+                    checked_at: 100
+                }],
+                Some(false)
+            )
+        );
+        assert!(!report_due(&first, &second, Duration::from_secs(30)));
+        assert!(report_due(&first, &second, Duration::from_secs(300)));
+        assert!(report_due(&first, &third, Duration::from_secs(1)));
+    }
 
     #[test]
     fn dispatches_oldest_job_for_each_printer_without_starving_other_printers() {

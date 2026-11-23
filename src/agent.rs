@@ -1,5 +1,6 @@
 use crate::{
     config::{self, Config},
+    printer_state::{self, PrinterHealth, PrinterState, WinPrinter},
     printers, slips,
 };
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// The API when none is set (`RESTORA_API` replaces it).
@@ -40,7 +41,17 @@ pub struct Agent {
     /// The printers as staff set them in Restora, kept (printers.json) so the web app on this PC can print without internet.
     printers: Mutex<serde_json::Value>,
     /// Last successful Windows printer discovery; status requests never call the blocking spooler API.
-    windows_printers: Mutex<Option<Vec<String>>>,
+    windows_printers: Mutex<Option<Vec<WinPrinter>>>,
+    health: Mutex<Option<Vec<PrinterHealth>>>,
+    pnp_count: Mutex<Option<usize>>,
+    wpp: Mutex<Option<bool>>,
+    pub refresh_pending: Arc<AtomicBool>,
+    pub discovery_busy: Arc<AtomicBool>,
+    /// Shared with the remote job dispatcher and explicit test printing.
+    pub active_printers: Arc<Mutex<HashSet<String>>>,
+    last_results: Mutex<HashMap<String, LastPrintResult>>,
+    last_result_writer: Mutex<()>,
+    test_after: Mutex<HashMap<String, Instant>>,
     pub http: reqwest::Client,
     /// Whether the last call to Restora got through, for the local status endpoint.
     pub online: std::sync::atomic::AtomicBool,
@@ -62,6 +73,14 @@ pub struct Recent {
     /// "printed", or "failed" (it will be tried again until it is given up).
     pub state: &'static str,
     pub error: Option<String>,
+}
+
+/// Last spooler submission outcome, persisted independently from printed.log.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastPrintResult {
+    pub ok: bool,
+    pub at: u64,
 }
 
 /// A slip to print, from the web app on this PC or from the backend.
@@ -105,6 +124,11 @@ impl Agent {
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_else(|| serde_json::json!([]));
+        let last_results: HashMap<String, LastPrintResult> =
+            std::fs::read(config::folder().join("printer-last-results.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .unwrap_or_default();
         Self {
             config: Mutex::new(config::load()),
             printed: Mutex::new(printed),
@@ -112,6 +136,15 @@ impl Agent {
             journal_ok: AtomicBool::new(journal_ok),
             printers: Mutex::new(printers),
             windows_printers: Mutex::new(None),
+            health: Mutex::new(None),
+            pnp_count: Mutex::new(None),
+            wpp: Mutex::new(None),
+            refresh_pending: Arc::new(AtomicBool::new(true)),
+            discovery_busy: Arc::new(AtomicBool::new(false)),
+            active_printers: Arc::new(Mutex::new(HashSet::new())),
+            last_results: Mutex::new(last_results),
+            last_result_writer: Mutex::new(()),
+            test_after: Mutex::new(HashMap::new()),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(15))
                 .build()
@@ -224,6 +257,7 @@ impl Agent {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let order = format!("Order #{}", slips::token(slip.order));
+        let succeeded = error.is_none();
         let line = Recent {
             at,
             printer: slip.printer.to_string(),
@@ -238,6 +272,167 @@ impl Agent {
         });
         recent.push_front(line);
         recent.truncate(RECENT);
+        drop(recent);
+        self.record_last_result(slip.printer, succeeded, at);
+        if !succeeded {
+            self.request_printer_refresh();
+        }
+    }
+
+    fn record_last_result(&self, printer: &str, ok: bool, at: u64) {
+        // Separate serialization of writers from the short-lived cache lock:
+        // /status must never wait for an on-disk fsync to read the last result.
+        let _writer = self.last_result_writer.lock().unwrap();
+        let snapshot = {
+            let mut results = self.last_results.lock().unwrap();
+            results.insert(printer.to_string(), LastPrintResult { ok, at });
+            results.clone()
+        };
+        if let Err(error) = Self::persist_last_results(&snapshot) {
+            tracing::warn!("could not persist printer's last result: {error}");
+        }
+    }
+
+    fn persist_last_results(results: &HashMap<String, LastPrintResult>) -> Result<(), String> {
+        Self::write_last_results_to(&config::folder().join("printer-last-results.json"), results)
+    }
+
+    fn write_last_results_to(
+        path: &std::path::Path,
+        results: &HashMap<String, LastPrintResult>,
+    ) -> Result<(), String> {
+        use std::io::Write;
+        let temp = path.with_extension("json.tmp");
+        let bytes = serde_json::to_vec(results).map_err(|e| e.to_string())?;
+        let mut file = std::fs::File::create(&temp).map_err(|e| e.to_string())?;
+        file.write_all(&bytes).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        // std::fs::rename uses the platform replacement operation; never delete
+        // the previous result before the replacement is prepared.
+        std::fs::rename(temp, path).map_err(|e| e.to_string())
+    }
+
+    pub fn last_result(&self, printer: &str) -> Option<LastPrintResult> {
+        self.last_results.lock().unwrap().get(printer).cloned()
+    }
+
+    fn clear_last_results(&self) {
+        let _writer = self.last_result_writer.lock().unwrap();
+        self.last_results.lock().unwrap().clear();
+        if let Err(error) = std::fs::remove_file(config::folder().join("printer-last-results.json"))
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!("could not clear previous pairing's printer result: {error}");
+        }
+        self.test_after.lock().unwrap().clear();
+    }
+
+    pub fn request_printer_refresh(&self) {
+        self.refresh_pending.store(true, Ordering::Release);
+    }
+
+    pub fn set_pnp_count(&self, count: usize) {
+        *self.pnp_count.lock().unwrap() = Some(count);
+    }
+
+    pub fn wpp(&self) -> Option<bool> {
+        *self.wpp.lock().unwrap()
+    }
+
+    pub fn set_wpp(&self, state: Option<bool>) {
+        *self.wpp.lock().unwrap() = state;
+    }
+
+    pub fn pnp_count(&self) -> Option<usize> {
+        *self.pnp_count.lock().unwrap()
+    }
+
+    pub fn printer_health(&self) -> Option<Vec<PrinterHealth>> {
+        // Serve the SAME conservative snapshot to the local UI and backend.
+        // A stalled driver must not leave a stale Ready status in PUT /printers.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.health.lock().unwrap().clone().map(|mut states| {
+            for state in &mut states {
+                if now.saturating_sub(state.checked_at) > 90 {
+                    state.state = PrinterState::Unknown;
+                }
+            }
+            states
+        })
+    }
+
+    /// Explicit user-initiated RAW test; never touches the printed.log dedupe journal.
+    pub fn test_print(&self, printer: &str) -> Result<(), String> {
+        if self.wpp() == Some(true) {
+            return Err("Windows Protected Print Mode blocks legacy RAW test printing".into());
+        }
+        if self.active_printers.lock().unwrap().contains(printer) {
+            return Err("A real job is printing on this printer".into());
+        }
+        {
+            let mut after = self.test_after.lock().unwrap();
+            if after
+                .get(printer)
+                .is_some_and(|previous| previous.elapsed() < Duration::from_secs(10))
+            {
+                return Err("Please wait 10 seconds between test prints".into());
+            }
+            after.insert(printer.to_string(), Instant::now());
+        }
+        {
+            let mut active = self.active_printers.lock().unwrap();
+            if !active.insert(printer.to_string()) {
+                return Err("Printer busy".into());
+            }
+        }
+        let result = (|| {
+            if self
+                .windows_printers
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|list| list.iter().any(|p| p.name == printer && p.jobs > 0))
+            {
+                return Err("Windows has pending printer jobs".to_string());
+            }
+            let lock = {
+                let mut locks = self.printer_locks.lock().unwrap();
+                Arc::clone(
+                    locks
+                        .entry(printer.to_string())
+                        .or_insert_with(|| Arc::new(Mutex::new(()))),
+                )
+            };
+            let _guard = lock.lock().map_err(|e| e.to_string())?;
+            printers::print_raw(printer, b"\x1b@Restora test print\n\n\n\x1dV\x00")
+        })();
+        self.active_printers.lock().unwrap().remove(printer);
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let error = result.as_ref().err().cloned();
+        {
+            let mut recent = self.recent.lock().unwrap();
+            recent.push_front(Recent {
+                at,
+                printer: printer.to_owned(),
+                kind: "test".into(),
+                order: "Manual test print".into(),
+                state: if result.is_ok() { "printed" } else { "failed" },
+                error,
+            });
+            recent.truncate(RECENT);
+        }
+        self.record_last_result(printer, result.is_ok(), at);
+        if result.is_err() {
+            self.request_printer_refresh();
+        }
+        result
     }
 
     pub fn recent(&self) -> Vec<Recent> {
@@ -280,7 +475,7 @@ impl Agent {
         if printer_discovery_completed {
             self.set_windows_printers(windows_printers.clone());
         }
-        let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": windows_printers });
+        let body = serde_json::json!({ "code": code, "version": env!("CARGO_PKG_VERSION"), "printers": printers::names(&windows_printers) });
         let response = self
             .http
             .post(format!("{api}/print-agent/pair"))
@@ -317,6 +512,7 @@ impl Agent {
                 self.journal_ok.store(false, Ordering::Relaxed);
             }
         }
+        self.clear_last_results();
         *self.config.lock().unwrap() = Some(config);
         if let Err(error) = self.set_printers(paired.printers) {
             tracing::error!("paired, but could not save offline printer settings: {error}");
@@ -329,11 +525,47 @@ impl Agent {
     }
 
     pub fn windows_printers(&self) -> Option<Vec<String>> {
-        self.windows_printers.lock().unwrap().clone()
+        self.windows_printers
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|p| printers::names(p))
     }
 
-    pub fn set_windows_printers(&self, names: Vec<String>) {
-        *self.windows_printers.lock().unwrap() = Some(names);
+    pub fn set_windows_printers(&self, list: Vec<WinPrinter>) {
+        self.set_windows_printers_with_pnp(list, None);
+    }
+
+    pub fn set_windows_printers_with_pnp(
+        &self,
+        list: Vec<WinPrinter>,
+        present_interfaces: Option<&[String]>,
+    ) {
+        let checked_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        // A user/installer may explicitly bind a queue to its verified USBPRINT
+        // path. No guessing by port number, friendly name, or VID/PID.
+        // Failure to inspect PnP never implies the USB interface is absent.
+        let bindings: HashMap<String, String> =
+            std::fs::read(config::folder().join("printer-usb-bindings.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .unwrap_or_default();
+        let health = list
+            .iter()
+            .map(|p| {
+                let present = present_interfaces
+                    .and_then(|paths| printer_state::bound_usb_presence(&p.name, &bindings, paths));
+                printer_state::classify(p, present, None, checked_at)
+            })
+            .collect();
+        if let Some(paths) = present_interfaces {
+            self.set_pnp_count(paths.len());
+        }
+        *self.health.lock().unwrap() = Some(health);
+        *self.windows_printers.lock().unwrap() = Some(list);
     }
 
     pub fn set_printers(&self, printers: serde_json::Value) -> Result<(), String> {
@@ -350,9 +582,14 @@ impl Agent {
         config::require_reconnect();
         config::clear();
         *self.windows_printers.lock().unwrap() = None;
+        *self.health.lock().unwrap() = None;
+        *self.pnp_count.lock().unwrap() = None;
+        *self.wpp.lock().unwrap() = None;
+        self.request_printer_refresh();
         if let Err(error) = self.set_printers(serde_json::json!([])) {
             tracing::error!("could not clear offline printer settings: {error}");
         }
+        self.clear_last_results();
         *self.config.lock().unwrap() = None;
         // Keys from a removed restaurant must not suppress slips for a future tenant.
         // Keep the history if disk access fails: fail closed rather than silently erase.
@@ -383,6 +620,31 @@ pub fn retry_delay(attempt: u32) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn last_submissions_survive_a_disk_roundtrip_without_touching_printed_log() {
+        let path = std::env::temp_dir().join(format!(
+            "restora-printer-results-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let mut saved = HashMap::new();
+        saved.insert("Kitchen".to_string(), LastPrintResult { ok: false, at: 10 });
+        Agent::write_last_results_to(&path, &saved).unwrap();
+        let first: HashMap<String, LastPrintResult> =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(!first["Kitchen"].ok);
+        saved.insert("Kitchen".to_string(), LastPrintResult { ok: true, at: 11 });
+        Agent::write_last_results_to(&path, &saved).unwrap();
+        let next: HashMap<String, LastPrintResult> =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(next["Kitchen"].ok);
+        assert_eq!(next["Kitchen"].at, 11);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn retries_get_slower_and_settle_at_a_minute() {
