@@ -556,9 +556,8 @@ impl Agent {
         let health = list
             .iter()
             .map(|p| {
-                let present = present_interfaces.and_then(|paths| {
-                    printer_state::bound_usb_presence(&p.name, &bindings, paths)
-                });
+                let present = present_interfaces
+                    .and_then(|paths| printer_state::bound_usb_presence(&p.name, &bindings, paths));
                 printer_state::classify(p, present, None, checked_at)
             })
             .collect();
