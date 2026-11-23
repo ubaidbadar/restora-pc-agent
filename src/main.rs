@@ -11,6 +11,8 @@ mod logo;
 #[cfg(windows)]
 mod printer_events;
 mod printer_state;
+#[cfg(test)]
+mod printer_fault_tests;
 mod printers;
 #[cfg(windows)]
 mod pwa;
